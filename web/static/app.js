@@ -25,6 +25,10 @@ const providerMaxRetriesInput = document.querySelector("#provider-max-retries");
 const clearProviderKeyButton = document.querySelector("#clear-provider-key");
 const providerSummary = document.querySelector("#provider-summary");
 const providerAlert = document.querySelector("#provider-alert");
+const providerAdminTokenInput = document.querySelector("#provider-admin-token");
+const providerLoginButton = document.querySelector("#provider-login");
+const providerLogoutButton = document.querySelector("#provider-logout");
+const providerAuthStatus = document.querySelector("#provider-auth-status");
 const requestEstimate = document.querySelector("#request-estimate");
 const textInput = document.querySelector("#text-input");
 const fileInput = document.querySelector('input[name="file"]');
@@ -38,6 +42,8 @@ const sampleButtons = document.querySelectorAll("[data-sample]");
 const workbenchGrid = document.querySelector("[data-resizable-workbench]");
 const workspaceResizer = document.querySelector("#workspace-resizer");
 const providerDiagnostics = document.querySelector("#provider-diagnostics");
+const userNoticeModal = document.querySelector("#user-notice-modal");
+const acceptUserNoticeButton = document.querySelector("#accept-user-notice");
 
 const CUSTOM_SELECT_SOURCES = [
   providerModeSetting,
@@ -46,6 +52,8 @@ const CUSTOM_SELECT_SOURCES = [
   providerProfileSelect,
 ];
 const WORKBENCH_WIDTH_KEY = "papershield.workbench.leftWidth.v1";
+const ADMIN_TOKEN_STORAGE_KEY = "papershield.adminToken.v1";
+const USER_NOTICE_ACCEPTED_KEY = "papershield.userNotice.accepted.v1";
 const DEFAULT_CONTROL_WIDTH = 340;
 const MIN_CONTROL_WIDTH = 292;
 const MAX_CONTROL_WIDTH = 520;
@@ -85,7 +93,7 @@ const RECOMMENDATION_LABELS = {
 const DOMAIN_LABELS = {
   law: "法学",
   economics: "经济学",
-  general: "通用社科领域",
+  general: "一般社科",
 };
 
 const WORKFLOW_ROUTE_LABELS = {
@@ -133,7 +141,7 @@ References
 Smith, 2020.`,
   },
   general: {
-    label: "通用社科样例",
+    label: "一般社科样例",
     domain: "general",
     text: `1. 研究背景
 
@@ -152,6 +160,7 @@ let customSelects = new Map();
 
 initializeCustomSelects();
 initializeWorkbenchResizer();
+initializeUserNotice();
 loadRuntimePolicy();
 loadProviderSettings();
 updateRequestEstimate();
@@ -170,10 +179,18 @@ form.addEventListener("submit", async (event) => {
     if (!file || file.size === 0) {
       formData.delete("file");
     }
-    const response = await fetch("/api/optimize", {
+    if (providerModeRequiresAuth(formData.get("provider_mode"))) {
+      throw new Error("请先输入访问口令并登录，再调用外部模型。");
+    }
+    const optimizeOptions = {
       method: "POST",
       body: formData,
-    });
+    };
+    const headers = providerAuthHeaders();
+    if (Object.keys(headers).length) {
+      optimizeOptions.headers = headers;
+    }
+    const response = await fetch("/api/optimize", optimizeOptions);
     const payload = await response.json();
     if (!response.ok) {
       throw new Error(payload.detail || "请求失败");
@@ -202,7 +219,25 @@ form.addEventListener("submit", async (event) => {
 
 providerConfigForm.addEventListener("submit", async (event) => {
   event.preventDefault();
-  await saveProviderConfig();
+  try {
+    await saveProviderConfig();
+  } catch (error) {
+    setStatus(error.message, true);
+  }
+});
+
+providerLoginButton.addEventListener("click", async () => {
+  await loginProviderConfig();
+});
+
+providerLogoutButton.addEventListener("click", () => {
+  logoutProviderConfig();
+});
+
+providerAdminTokenInput.addEventListener("keydown", async (event) => {
+  if (event.key !== "Enter") return;
+  event.preventDefault();
+  await loginProviderConfig();
 });
 
 providerModeSetting.addEventListener("change", () => {
@@ -215,7 +250,11 @@ providerPresetSelect.addEventListener("change", () => {
 });
 
 clearProviderKeyButton.addEventListener("click", async () => {
-  await clearProviderKey();
+  try {
+    await clearProviderKey();
+  } catch (error) {
+    setStatus(error.message, true);
+  }
 });
 
 textInput.addEventListener("input", updateRequestEstimate);
@@ -242,6 +281,8 @@ for (const tab of artifactTabs) {
   tab.addEventListener("click", () => activateArtifactTab(tab.dataset.artifactTab));
 }
 
+acceptUserNoticeButton.addEventListener("click", acceptUserNotice);
+
 checkProviderButton.addEventListener("click", async () => {
   const providerData = new FormData();
   providerData.set("provider_mode", providerModeInput.value || "configured");
@@ -254,6 +295,7 @@ checkProviderButton.addEventListener("click", async () => {
     }
     const response = await fetch("/api/provider/check", {
       method: "POST",
+      headers: providerAuthHeaders(),
       body: providerData,
     });
     const payload = await response.json();
@@ -267,7 +309,11 @@ checkProviderButton.addEventListener("click", async () => {
     setStatus(error.message, true);
     setProviderAlert(error.message, true);
   } finally {
-    checkProviderButton.disabled = false;
+    if (runtimePolicy) {
+      applyRuntimePolicy(runtimePolicy);
+    } else {
+      checkProviderButton.disabled = false;
+    }
   }
 });
 
@@ -340,7 +386,7 @@ async function loadProviderSettings() {
     if (!configResponse.ok) throw new Error(configPayload.detail || "模型配置加载失败");
     populateProviderPresets(presetsPayload);
     fillProviderForm(configPayload);
-    if (runtimePolicy && runtimePolicy.provider_config_enabled === false) {
+    if (runtimePolicy) {
       applyRuntimePolicy(runtimePolicy);
     } else {
       clearProviderAlert();
@@ -366,7 +412,11 @@ async function loadRuntimePolicy() {
 }
 
 function applyRuntimePolicy(policy) {
-  const locked = policy && policy.provider_config_enabled === false;
+  const configDisabled = policy && policy.provider_config_enabled === false;
+  const requiresLogin = Boolean(policy && policy.admin_token_required);
+  const loggedIn = hasAdminToken();
+  const authLocked = requiresLogin && !loggedIn;
+  const locked = Boolean(configDisabled || authLocked);
   const controls = [
     providerPresetSelect,
     providerProviderSelect,
@@ -385,10 +435,156 @@ function applyRuntimePolicy(policy) {
     if (control) control.disabled = Boolean(locked);
   }
   providerConfigForm.classList.toggle("locked-mode", Boolean(locked));
+  providerConfigForm.classList.toggle("auth-locked", Boolean(authLocked));
+  providerAdminTokenInput.disabled = Boolean(configDisabled || !requiresLogin);
+  providerLoginButton.disabled = Boolean(configDisabled || !requiresLogin);
+  providerLogoutButton.hidden = !loggedIn || !requiresLogin;
+  providerLoginButton.hidden = loggedIn && requiresLogin;
   syncAllCustomSelects();
-  if (locked) {
+  if (configDisabled) {
     setProviderStatus("公开演示模式", "locked");
     setProviderAlert("公开演示模式已锁定模型配置。", false);
+    setProviderAuthStatus("当前部署未开放模型配置。", "locked");
+    return;
+  }
+  if (authLocked) {
+    setProviderStatus("等待登录", "locked");
+    setProviderAlert("请输入访问口令并登录后，再填写、测试或保存外部模型配置。", false);
+    setProviderAuthStatus("需要访问口令后才能配置模型。", "locked");
+    return;
+  }
+  if (requiresLogin && loggedIn) {
+    setProviderAuthStatus("已登录，可配置并调用外部模型。", "success");
+    return;
+  }
+  setProviderAuthStatus("当前环境未设置访问口令，可直接配置模型。", "neutral");
+}
+
+async function loginProviderConfig() {
+  if (runtimePolicy && runtimePolicy.provider_config_enabled === false) {
+    setProviderAlert("当前部署未开放模型配置。", false);
+    return;
+  }
+  const token = providerAdminTokenInput.value.trim();
+  if (runtimePolicy && runtimePolicy.admin_token_required && !token) {
+    setProviderAuthStatus("请输入访问口令。", "error");
+    setProviderAlert("请输入访问口令后再登录模型配置。", true);
+    return;
+  }
+  setProviderAuthStatus("正在验证访问口令...", "busy");
+  try {
+    setAdminToken(token);
+    const response = await fetch("/api/provider/session", {
+      method: "POST",
+      headers: providerAuthHeaders(token),
+    });
+    const payload = await response.json();
+    if (!response.ok) {
+      throw new Error(payload.detail || "访问口令错误或无权限。");
+    }
+    providerAdminTokenInput.value = "";
+    if (payload.admin_token_required) {
+      setProviderAuthStatus("已登录，可配置并调用外部模型。", "success");
+      setStatus("模型配置已解锁", false);
+    } else {
+      setProviderAuthStatus("当前环境无需访问口令。", "neutral");
+    }
+    clearProviderAlert();
+    if (runtimePolicy) applyRuntimePolicy(runtimePolicy);
+    await loadProviderSettings();
+  } catch (error) {
+    clearAdminToken();
+    if (runtimePolicy) applyRuntimePolicy(runtimePolicy);
+    setProviderAuthStatus("访问口令错误或无权限。", "error");
+    setProviderAlert(error.message || "访问口令错误或无权限。", true);
+  }
+}
+
+function logoutProviderConfig() {
+  clearAdminToken();
+  providerAdminTokenInput.value = "";
+  providerApiKeyInput.value = "";
+  if (runtimePolicy) applyRuntimePolicy(runtimePolicy);
+  setProviderAlert("已退出模型配置登录。", false);
+  setStatus("已退出模型配置登录", false);
+}
+
+function providerModeRequiresAuth(providerMode) {
+  const normalized = String(providerMode || "").toLowerCase();
+  return normalized !== "mock" && runtimePolicy && runtimePolicy.admin_token_required && !hasAdminToken();
+}
+
+function providerAuthHeaders(tokenOverride = "") {
+  const token = tokenOverride || getAdminToken();
+  return token ? { "X-PaperShield-Admin-Token": token } : {};
+}
+
+function getAdminToken() {
+  try {
+    return sessionStorage.getItem(ADMIN_TOKEN_STORAGE_KEY) || "";
+  } catch (error) {
+    return "";
+  }
+}
+
+function setAdminToken(token) {
+  try {
+    if (token) {
+      sessionStorage.setItem(ADMIN_TOKEN_STORAGE_KEY, token);
+    } else {
+      sessionStorage.removeItem(ADMIN_TOKEN_STORAGE_KEY);
+    }
+  } catch (error) {
+    // Storage may be blocked by browser privacy settings.
+  }
+}
+
+function clearAdminToken() {
+  setAdminToken("");
+}
+
+function hasAdminToken() {
+  return Boolean(getAdminToken());
+}
+
+function setProviderAuthStatus(message, state = "neutral") {
+  providerAuthStatus.textContent = message;
+  providerAuthStatus.dataset.state = state;
+}
+
+function initializeUserNotice() {
+  if (hasAcceptedUserNotice()) {
+    userNoticeModal.hidden = true;
+    return;
+  }
+  showUserNotice();
+}
+
+function showUserNotice() {
+  userNoticeModal.hidden = false;
+  document.body.classList.add("notice-open");
+  const dialog = userNoticeModal.querySelector(".notice-dialog");
+  window.requestAnimationFrame(() => {
+    if (dialog) dialog.focus();
+  });
+}
+
+function acceptUserNotice() {
+  try {
+    localStorage.setItem(USER_NOTICE_ACCEPTED_KEY, "1");
+  } catch (error) {
+    // If storage is unavailable, accepting still unlocks the current page.
+  }
+  userNoticeModal.hidden = true;
+  document.body.classList.remove("notice-open");
+  setStatus("用户须知已确认，工作台已就绪", false);
+}
+
+function hasAcceptedUserNotice() {
+  try {
+    return localStorage.getItem(USER_NOTICE_ACCEPTED_KEY) === "1";
+  } catch (error) {
+    return false;
   }
 }
 
@@ -451,6 +647,11 @@ async function saveProviderConfig(options = {}) {
     setProviderAlert("公开演示模式已锁定模型配置。", false);
     return currentProviderConfig;
   }
+  if (runtimePolicy && runtimePolicy.admin_token_required && !hasAdminToken()) {
+    const error = new Error("请先输入访问口令并登录，再保存模型配置。");
+    if (!options.silent) setProviderAlert(error.message, true);
+    throw error;
+  }
   const payload = readProviderForm();
   if (providerApiKeyInput.value.trim()) {
     payload.api_key = providerApiKeyInput.value.trim();
@@ -460,7 +661,7 @@ async function saveProviderConfig(options = {}) {
   }
   const response = await fetch("/api/provider/config", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", ...providerAuthHeaders() },
     body: JSON.stringify(payload),
   });
   const result = await response.json();

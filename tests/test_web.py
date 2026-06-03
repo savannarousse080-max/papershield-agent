@@ -31,7 +31,7 @@ class WebAppTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         payload = response.json()
         self.assertEqual(payload["status"], "ok")
-        self.assertEqual(payload["version"], "1.10")
+        self.assertEqual(payload["version"], "1.11")
         self.assertEqual(payload["prompt_profile"], "research_writing_zh_word_v1")
         self.assertIn(payload["provider"], {"openai", "mock", "anthropic"})
         self.assertEqual(payload["compliance_mode"], "local-demo")
@@ -48,6 +48,7 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("limits", payload)
         self.assertIn("max_upload_bytes", payload["limits"])
         self.assertIn("provider_config_enabled", payload)
+        self.assertIn("admin_token_required", payload)
         self.assertIn("provider_base_url_policy", payload)
 
     def test_workflow_topology_endpoint_reports_langgraph_nodes(self):
@@ -182,6 +183,9 @@ class WebAppTests(unittest.TestCase):
 
             self.assertEqual(response.status_code, 403)
 
+            session_denied = client.post("/api/provider/session")
+            self.assertEqual(session_denied.status_code, 403)
+
             authorized = client.post(
                 "/api/provider/config",
                 headers={"X-PaperShield-Admin-Token": "admin-secret"},
@@ -193,8 +197,35 @@ class WebAppTests(unittest.TestCase):
                     "prompt_profile": "default",
                 },
             )
+            session_authorized = client.post(
+                "/api/provider/session",
+                headers={"X-PaperShield-Admin-Token": "admin-secret"},
+            )
 
         self.assertEqual(authorized.status_code, 200, authorized.text)
+        self.assertEqual(session_authorized.status_code, 200, session_authorized.text)
+        self.assertTrue(session_authorized.json()["authenticated"])
+
+    def test_external_model_call_requires_admin_token_when_configured(self):
+        env = {
+            "PAPERSHIELD_PROVIDER_CONFIG_PATH": self.config_path,
+            "PAPERSHIELD_ADMIN_TOKEN": "admin-secret",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            reset_provider_runtime_for_tests()
+            client = TestClient(create_app())
+            denied = client.post(
+                "/api/optimize",
+                data={"text": "此外，数据安全问题需要完善[1]。", "domain": "law", "provider_mode": "configured"},
+            )
+            mock_allowed = client.post(
+                "/api/optimize",
+                data={"text": "此外，数据安全问题需要完善[1]。", "domain": "law", "provider_mode": "mock"},
+            )
+
+        self.assertEqual(denied.status_code, 403)
+        self.assertIn("Admin token required", denied.json()["detail"])
+        self.assertEqual(mock_allowed.status_code, 200, mock_allowed.text)
 
     def test_provider_config_can_be_disabled_for_public_demo(self):
         env = {
@@ -568,9 +599,11 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("导出 Word", html)
         self.assertIn("PaperShield 学术稿件智能审阅平台", html)
         self.assertIn('rel="icon"', html)
-        self.assertIn("/static/styles.css?v=1.10", html)
-        self.assertIn("/static/app.js?v=1.10", html)
-        self.assertIn("通用社科领域", html)
+        self.assertIn("/static/styles.css?v=1.11", html)
+        self.assertIn("/static/app.js?v=1.11", html)
+        self.assertIn("面向一般社科领域", html)
+        self.assertIn("论证清晰度、表达自然度、术语一致性与引文可核查性", html)
+        self.assertIn("一般社科", html)
         self.assertIn('data-artifact-tab="final"', html)
         self.assertIn('data-artifact-tab="evidence"', html)
         self.assertIn('data-artifact-tab="workflow"', html)
@@ -582,6 +615,9 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("连接状态", html)
         self.assertIn("上传 .txt/.docx", html)
         self.assertIn('id="workflow-trace"', html)
+        self.assertIn('id="user-notice-modal"', html)
+        self.assertIn("用户须知", html)
+        self.assertIn("我已阅读并同意", html)
 
     def test_home_page_exposes_model_settings_workspace(self):
         response = self.client.get("/")
@@ -605,10 +641,16 @@ class WebAppTests(unittest.TestCase):
             'id="request-estimate"',
             'id="provider-alert"',
             'id="provider-diagnostics"',
+            'id="provider-admin-token"',
+            'id="provider-login"',
+            'id="provider-logout"',
+            'id="provider-auth-status"',
         ]:
             self.assertIn(expected, html)
         self.assertIn("接口类型", html)
         self.assertIn("失败重试次数", html)
+        self.assertIn("登录配置", html)
+        self.assertIn("退出登录", html)
         self.assertIn("help-dot", html)
 
     def test_static_javascript_contains_review_actions(self):
@@ -649,8 +691,11 @@ class WebAppTests(unittest.TestCase):
             "loadProviderSettings",
             "/api/provider/presets",
             "/api/provider/config",
+            "/api/provider/session",
             "saveProviderConfig",
             "clearProviderKey",
+            "loginProviderConfig",
+            "logoutProviderConfig",
             "applyPresetToForm",
             "updateRequestEstimate",
             "provider_error",
@@ -658,6 +703,8 @@ class WebAppTests(unittest.TestCase):
             "syncCustomSelect",
             "custom-select-source",
             "setProviderStatus",
+            "X-PaperShield-Admin-Token",
+            "sessionStorage",
             "模型调用失败，已保留原文",
         ]:
             self.assertIn(expected, script)
@@ -670,7 +717,20 @@ class WebAppTests(unittest.TestCase):
         self.assertIn("/api/runtime/policy", script)
         self.assertIn("applyRuntimePolicy", script)
         self.assertIn("provider_config_enabled", script)
+        self.assertIn("admin_token_required", script)
         self.assertIn("公开演示模式已锁定模型配置", script)
+        self.assertIn("请输入访问口令并登录", script)
+
+    def test_static_javascript_contains_user_notice_modal_logic(self):
+        response = self.client.get("/static/app.js")
+
+        self.assertEqual(response.status_code, 200)
+        script = response.text
+        self.assertIn("initializeUserNotice", script)
+        self.assertIn("showUserNotice", script)
+        self.assertIn("acceptUserNotice", script)
+        self.assertIn("USER_NOTICE_ACCEPTED_KEY", script)
+        self.assertIn("localStorage", script)
 
     def test_static_javascript_contains_workflow_trace(self):
         response = self.client.get("/static/app.js")

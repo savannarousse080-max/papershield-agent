@@ -5,16 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PaperShield 审阅工作台</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23070b0a'/%3E%3Cpath d='M16 13h23l9 9v29H16z' fill='%23f2efe2'/%3E%3Cpath d='M39 13v10h9' fill='%23c7a45c'/%3E%3Cpath d='M23 31h24M23 39h18M23 47h13' stroke='%2314201b' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="/static/styles.css?v=1.10" />
+    <link rel="stylesheet" href="/static/styles.css?v=1.11" />
   </head>
   <body>
+    <div class="notice-modal" id="user-notice-modal" role="dialog" aria-modal="true" aria-labelledby="user-notice-title" aria-describedby="user-notice-copy" hidden>
+      <div class="notice-backdrop" aria-hidden="true"></div>
+      <section class="notice-dialog" tabindex="-1">
+        <p class="kicker">使用边界</p>
+        <h2 id="user-notice-title">用户须知</h2>
+        <div class="notice-copy" id="user-notice-copy">
+          <p>PaperShield 用于你有权编辑的学术草稿，帮助提升论证清晰度、表达自然度、术语一致性和引文可核查性，不承诺规避或击败任何外部检测系统。</p>
+          <ul>
+            <li>所有事实、论点、术语、数据和引注必须由你人工复核。</li>
+            <li>页面中的指标是本地代理信号，不等同于任何检测器结果。</li>
+            <li>配置外部模型后，草稿文本和模型调用信息可能发送至你选择的服务商，请自行确认服务商条款并妥善保管 API key。</li>
+          </ul>
+        </div>
+        <button class="primary-button" id="accept-user-notice" type="button">我已阅读并同意</button>
+      </section>
+    </div>
     <a class="skip-link" href="#review-workbench">跳到逐段审阅</a>
     <main class="app-shell">
       <header class="app-topbar" aria-label="PaperShield 工作台状态">
         <div class="brand-block">
           <p class="eyebrow">PaperShield Agent</p>
           <h1>PaperShield 学术稿件智能审阅平台</h1>
-          <p class="topline">面向法学、经济学与通用社科领域，提供正文识别、引用保护、语义保真诊断与可复核润色工作流。</p>
+          <p class="topline">面向一般社科领域，通过逐段审阅、引用保留、语义保真诊断与可复核润色，提升文本的论证清晰度、表达自然度、术语一致性与引文可核查性。</p>
         </div>
         <div class="topbar-actions">
           <div class="status" id="status" role="status" aria-live="polite">本地演示模式已就绪</div>
@@ -24,7 +40,7 @@
       <section class="workbench-grid" aria-label="PaperShield 审阅工作区" data-resizable-workbench>
         <aside class="control-rail" aria-label="输入与运行">
           <form id="optimize-form" class="panel source-panel">
-            <input id="provider-mode-input" name="provider_mode" type="hidden" value="configured" />
+            <input id="provider-mode-input" name="provider_mode" type="hidden" value="mock" />
             <div class="section-head">
               <div>
                 <p class="kicker">Source</p>
@@ -36,7 +52,7 @@
             <div class="sample-row" aria-label="演示样例">
               <button class="ghost-button" data-sample="law" type="button">法学样例</button>
               <button class="ghost-button" data-sample="economics" type="button">经济样例</button>
-              <button class="ghost-button" data-sample="general" type="button">通用社科样例</button>
+              <button class="ghost-button" data-sample="general" type="button">一般社科样例</button>
             </div>
 
             <label class="draft-field" for="text-input">
@@ -63,7 +79,7 @@
                 </label>
                 <label>
                   <input name="domain" type="radio" value="general" />
-                  <span>通用社科领域</span>
+                  <span>一般社科</span>
                 </label>
               </div>
             </fieldset>
@@ -89,6 +105,17 @@
               </span>
               <span class="summary-caret" aria-hidden="true">⌄</span>
             </summary>
+            <section class="provider-auth-panel" aria-label="模型配置访问口令">
+              <div class="provider-auth-copy">
+                <span class="text-label">访问口令</span>
+                <strong id="provider-auth-status">正在读取运行策略...</strong>
+              </div>
+              <div class="provider-auth-controls">
+                <input id="provider-admin-token" type="password" autocomplete="current-password" placeholder="输入部署时设置的访问口令" />
+                <button class="secondary-button" id="provider-login" type="button">登录配置</button>
+                <button class="secondary-button" id="provider-logout" type="button" hidden>退出登录</button>
+              </div>
+            </section>
             <form id="provider-config-form">
               <div class="settings-grid">
                 <label>
@@ -275,6 +302,6 @@
         </aside>
       </section>
     </main>
-    <script src="/static/app.js?v=1.10"></script>
+    <script src="/static/app.js?v=1.11"></script>
   </body>
 </html>

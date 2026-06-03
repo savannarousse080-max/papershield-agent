@@ -40,6 +40,10 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertIn("runtime: docker", render_text)
         self.assertIn("autoDeploy: true", render_text)
         self.assertIn("healthCheckPath: /healthz", render_text)
+        self.assertIn("PAPERSHIELD_PROVIDER_CONFIG_ENABLED", render_text)
+        self.assertIn('value: "1"', render_text)
+        self.assertIn("PAPERSHIELD_ADMIN_TOKEN", render_text)
+        self.assertIn("sync: false", render_text)
         self.assertIn('"8000:8000"', compose_text)
         self.assertIn("config/provider.local.json", dockerignore_text)
         self.assertIn(".env", dockerignore_text)
@@ -126,8 +130,8 @@ class DeploymentReadinessTests(unittest.TestCase):
 
         self.assertIn("scripts\\verify.ps1", readme)
         self.assertIn("docker compose up", readme)
-        self.assertIn("workflow trace", readme.lower())
-        self.assertIn("conditional review", readme.lower())
+        self.assertIn("工作流轨迹", readme)
+        self.assertIn("条件审阅", readme)
         self.assertIn("/healthz", readme)
         self.assertIn("Render", readme)
         self.assertIn("Railway", readme)
@@ -135,10 +139,10 @@ class DeploymentReadinessTests(unittest.TestCase):
         self.assertIn("演示可用版", prd)
         self.assertIn("快速上线", prd)
         self.assertNotIn("不支持：`.docx`、Web Demo", prd)
-        self.assertIn("conditional review", prd.lower())
+        self.assertIn("条件审阅", prd)
         self.assertIn("5 分钟", demo_text)
         self.assertIn("工程交付", demo_text)
-        self.assertIn("workflow trace", demo_text.lower())
+        self.assertIn("工作流轨迹", demo_text)
 
     def test_demo_outputs_are_refreshed_for_portfolio_walkthrough(self):
         out_dir = ROOT / "out"

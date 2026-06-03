@@ -36,7 +36,7 @@ from web.security import (
 
 
 WEB_ROOT = Path(__file__).resolve().parent
-APP_VERSION = "1.10"
+APP_VERSION = "1.11"
 
 
 def create_app() -> FastAPI:
@@ -94,6 +94,15 @@ def create_app() -> FastAPI:
     @app.get("/api/provider/config")
     def provider_config() -> dict:
         return get_provider_config_payload()
+
+    @app.post("/api/provider/session")
+    def provider_session(request: Request) -> dict:
+        _authorize_provider_control(request)
+        return {
+            "authenticated": True,
+            "admin_token_required": bool(admin_token()),
+            "provider_config_enabled": provider_config_enabled(),
+        }
 
     @app.post("/api/report/docx")
     def report_docx(request: Request, payload: dict = Body(...)):
@@ -181,6 +190,8 @@ def create_app() -> FastAPI:
         if not raw_text:
             raise HTTPException(status_code=400, detail="Provide text or .txt/.docx file input.")
 
+        _authorize_provider_use(request, provider_mode)
+
         try:
             llm = _client_for_provider_mode(provider_mode)
         except ProviderConfigError as exc:
@@ -231,6 +242,15 @@ def _authorize_provider_control(request: Request) -> None:
     expected = admin_token()
     if expected and request.headers.get("X-PaperShield-Admin-Token") != expected:
         raise HTTPException(status_code=403, detail="Admin token required for provider configuration.")
+
+
+def _authorize_provider_use(request: Request, provider_mode: str) -> None:
+    normalized = provider_mode.lower()
+    if normalized == "mock":
+        return
+    expected = admin_token()
+    if expected and request.headers.get("X-PaperShield-Admin-Token") != expected:
+        raise HTTPException(status_code=403, detail="Admin token required for external model calls.")
 
 
 def _enforce_rate_limit(request: Request, limiter: SlidingWindowRateLimiter, bucket: str) -> None:

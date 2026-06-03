@@ -1,17 +1,17 @@
 # PaperShield
 
-PaperShield is a local-first academic writing quality agent. It improves reviewability of drafts by reducing formulaic transitions, preserving citations, surfacing paragraph-level risk flags, and producing human-review reports. It does not promise to bypass or defeat AI detectors.
+PaperShield 是一个本地优先的学术文本质量审阅 Agent。它面向用户有权编辑的草稿，通过减少模板化连接词、保护引注、提示段落级风险并生成可人工复核的报告，提升文本的论证清晰度、表达自然度、术语一致性与引文可核查性。它不承诺绕过、规避或击败任何外部 AI 检测系统。
 
-## Compliance Boundary
+## 合规边界
 
-- Use it only on drafts you are allowed to edit.
-- Review all facts, claims, terms, and citations manually.
-- Treat metrics as local proxy signals, not detector results.
-- The portfolio demo supports `.txt`, basic `.docx`, CLI workflows, and a single-user Web review workspace.
+- 仅用于你有权编辑、润色和提交的草稿。
+- 所有事实、论点、术语、数据和引注都必须人工复核。
+- 页面指标只是本地代理信号，不等同于任何检测器结果。
+- 作品集演示版支持 `.txt`、基础 `.docx`、命令行流程和单用户 Web 审阅工作台。
 
-## 5-Minute Local Start
+## 5 分钟本地启动
 
-PowerShell:
+PowerShell：
 
 ```powershell
 python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -20,7 +20,7 @@ $env:PAPERSHIELD_LLM_PROVIDER="mock"
 .\scripts\start-web.ps1
 ```
 
-cmd:
+cmd：
 
 ```cmd
 python -m pip install -r requirements.txt -r requirements-dev.txt
@@ -32,30 +32,28 @@ python main.py eval-fixtures --json
 python -m uvicorn web.app:app --host 127.0.0.1 --port 8000
 ```
 
-Open `http://127.0.0.1:8000` and verify the service at `http://127.0.0.1:8000/healthz`.
-For dependency and static security checks, install `requirements-dev.txt` and run `.\scripts\security-audit.ps1`.
-Use `setup-env.ps1` as a parameterized local helper only; keep real keys in your shell, `.env`, or `setup-env.local.ps1`, which are ignored by Git.
+打开 `http://127.0.0.1:8000` 使用工作台；打开 `http://127.0.0.1:8000/healthz` 验证服务状态。依赖与静态安全检查可在安装 `requirements-dev.txt` 后运行 `.\scripts\security-audit.ps1`。`setup-env.ps1` 只是本地参数化辅助脚本；真实密钥请放在当前 shell、`.env` 或 `setup-env.local.ps1` 中，这些文件已被 Git 忽略。
 
-## Docker Demo
+## Docker 演示
 
 ```bash
 docker compose up --build
 ```
 
-The container exposes port `8000` and defaults to `PAPERSHIELD_LLM_PROVIDER=mock`, which is safe for public portfolio demos because no model key is required.
+容器暴露 `8000` 端口，默认使用 `PAPERSHIELD_LLM_PROVIDER=mock`，无需模型密钥，适合公开作品集演示。
 
-For Render or Railway:
+Render 或 Railway 部署要点：
 
-- Build from this repository with the included `Dockerfile`.
-- Expose port `8000`.
-- Keep `PAPERSHIELD_LLM_PROVIDER=mock` for public demos.
-- Keep `PAPERSHIELD_PROVIDER_CONFIG_ENABLED=0` for public demos so visitors cannot change model endpoints.
-- Use `/healthz` as the health check path.
-- Only set `PAPERSHIELD_LLM_PROVIDER=openai|anthropic` and API keys for private deployments.
+- 使用本仓库内置 `Dockerfile` 构建。
+- 暴露 `8000` 端口，Render 可通过平台提供的 `PORT` 环境变量启动。
+- 使用 `/healthz` 作为健康检查路径。
+- 公开演示可保持 `PAPERSHIELD_LLM_PROVIDER=mock`，不消耗任何模型额度。
+- 若要让登录用户在网页中填写模型信息并调用模型，设置 `PAPERSHIELD_PROVIDER_CONFIG_ENABLED=1`，并在平台环境变量里设置 `PAPERSHIELD_ADMIN_TOKEN`。
+- 不要把真实 API key 或访问口令提交到 GitHub。
 
-For a free GitHub-synced deployment path, see `docs/deployment-free.md`. The repository includes `render.yaml` for Render Blueprint/Web Service deployment with automatic redeploys from `main`.
+免费 GitHub 同步部署流程见 `docs/deployment-free.md`。仓库已包含 `render.yaml`，用于 Render Blueprint/Web Service 部署，并开启从 `main` 分支自动重新部署。
 
-## CLI Commands
+## 命令行
 
 ```powershell
 python main.py list-domains
@@ -67,41 +65,43 @@ python main.py workflow-info --json
 python main.py eval-fixtures --json
 ```
 
-`optimize` writes an optimized document, a text/JSON/HTML report, and review checklists. `--analysis-only` runs diagnostics without rewriting the document, which is useful for cautious `.docx` review. `workflow-info` reports the active orchestration backend and node topology.
+`optimize` 会输出润色文本、文本/JSON/HTML 报告和人工复核清单。`--analysis-only` 只生成诊断，不改写正文，适合谨慎审阅 `.docx`。`workflow-info` 会返回当前编排后端和节点拓扑。
 
-## Web Demo
+## Web 审阅工作台
 
-The Web review workspace accepts pasted text, `.txt`, and basic `.docx` uploads. It supports:
+Web 工作台支持粘贴文本、上传 `.txt` 和基础 `.docx`，主要能力包括：
 
-- domain selection for law, economics, and general social science;
-- mock or environment-backed provider modes;
-- provider status and connection testing before running a real model;
-- analysis-only mode;
-- paragraph-by-paragraph accept/keep controls;
-- paragraph recommendations, semantic fidelity risk flags, and inline diff segments;
-- workflow trace for backend, conditional review route, and executed nodes;
-- structure-preserving final draft merge using `document_blocks`;
-- Markdown and HTML export for portfolio walkthroughs.
+- 法学、经济学、一般社科领域选择；
+- 本地演示模型与外部模型两种运行模式；
+- 访问口令登录后的模型服务配置、保存与连接测试；
+- 仅分析模式；
+- 逐段采纳润色或保留原文；
+- 段落建议、语义保真风险、引注风险和行内差异；
+- 后端、条件审阅路线和执行节点的工作流轨迹；
+- 基于 `document_blocks` 的结构保留式最终稿合并；
+- Markdown、HTML 和 Word 报告导出。
 
-## Architecture
+首次打开网站时会显示“用户须知”弹窗，确认后才进入工作台。若部署配置了 `PAPERSHIELD_ADMIN_TOKEN`，用户需要在“模型与运行环境”面板输入访问口令后，才能填写外部模型服务地址、模型名和 API key，并调用真实模型。
 
-The implementation is intentionally small and fast to ship:
+## 架构
 
-1. Parse `.txt` or basic `.docx`, split paragraphs, protect citations, and preserve titles, figures, tables, and references.
-2. Apply Layer 1 syntax naturalization.
-3. Apply Layer 2 domain-aware academic wording.
-4. Score with a combined local diagnostic: perplexity proxy, sentence-length variation, template-word reduction, citation retention.
-5. Build paragraph-level risk flags, semantic fidelity hints, recommendations, and a manual review checklist.
-6. Route the document through a conditional review gate: accepted drafts continue through `quality_accepted`, while risky drafts enter `manual_review_required`.
-7. Retry low-quality paragraphs once, then fall back safely if needed.
-8. Assemble final text and text/JSON/HTML reports.
-9. Serve the same workflow through FastAPI for local and Docker demos.
+实现刻意保持轻量，便于验证和部署：
 
-Install `requirements-optional.txt` to enable LangGraph orchestration. When LangGraph is available, `optimize_text()` and `build_graph()` execute the conditional `StateGraph`; otherwise they fall back to the lightweight local graph. Structured CLI and Web reports include `workflow.backend`, `workflow.route`, `workflow.nodes`, and a Web workflow trace for observability. `eval-fixtures --json` reports aggregate quality metrics, review routing counts, fallback counts, citation retention, and workflow backend coverage. Optional ML scoring dependencies live in `requirements-ml.txt` and are not required for the fast demo path.
+1. 解析 `.txt` 或基础 `.docx`，分段、保护引注，并保留标题、图表、表格和参考文献。
+2. 执行第一层句式自然化，减少模板化表达。
+3. 执行第二层领域化学术措辞增强。
+4. 计算组合本地诊断指标：困惑度代理、句长变化、模板词减少率和引注保留率。
+5. 生成段落级风险标记、语义保真提示、采纳建议和人工复核清单。
+6. 通过条件审阅门禁分流：低风险草稿进入 `quality_accepted`，高风险草稿进入 `manual_review_required`。
+7. 低质量段落最多重试一次，仍不达标时安全保留原文。
+8. 组装最终文本和文本/JSON/HTML/Word 报告。
+9. 通过 FastAPI 将同一套流程提供给本地、Docker 和线上演示。
 
-## Provider Configuration
+安装 `requirements-optional.txt` 可启用 LangGraph 编排。安装后，`optimize_text()` 与 `build_graph()` 会执行条件 `StateGraph`；未安装时会自动回退到轻量本地图。结构化命令行和 Web 报告都会包含 `workflow.backend`、`workflow.route`、`workflow.nodes` 与工作流轨迹，便于观察 Agent 决策路径。`eval-fixtures --json` 会汇总质量指标、审阅路由数量、兜底数量、引注保留率和工作流后端覆盖情况。可选 ML 评分依赖放在 `requirements-ml.txt`，快速演示路径不需要安装。
 
-Useful environment variables:
+## 模型配置
+
+常用环境变量：
 
 - `PAPERSHIELD_LLM_PROVIDER=mock|openai|anthropic`
 - `PAPERSHIELD_PROMPT_PROFILE=default|research_writing_zh_word_v1`
@@ -109,22 +109,24 @@ Useful environment variables:
 - `PAPERSHIELD_LLM_BASE_URL`
 - `PAPERSHIELD_LLM_TIMEOUT`
 - `PAPERSHIELD_LLM_MAX_RETRIES`
-- `PAPERSHIELD_API_KEY`, `OPENAI_API_KEY`, or `ANTHROPIC_API_KEY`
+- `PAPERSHIELD_API_KEY`、`OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`
 - `PAPERSHIELD_PROVIDER_CONFIG_ENABLED=0|1`
-- `PAPERSHIELD_ADMIN_TOKEN` for protecting provider config/check endpoints in private deployments
-- `PAPERSHIELD_MAX_UPLOAD_BYTES`, `PAPERSHIELD_MAX_TEXT_CHARS`, `PAPERSHIELD_MAX_PARAGRAPHS`
-- `PAPERSHIELD_OPTIMIZE_RATE_LIMIT_PER_MINUTE`, `PAPERSHIELD_PROVIDER_RATE_LIMIT_PER_MINUTE`
+- `PAPERSHIELD_ADMIN_TOKEN`，用于保护网页模型配置、连接测试和外部模型调用
+- `PAPERSHIELD_MAX_UPLOAD_BYTES`、`PAPERSHIELD_MAX_TEXT_CHARS`、`PAPERSHIELD_MAX_PARAGRAPHS`
+- `PAPERSHIELD_OPTIMIZE_RATE_LIMIT_PER_MINUTE`、`PAPERSHIELD_PROVIDER_RATE_LIMIT_PER_MINUTE`
 
-Public demos should stay on `mock`. Real providers are intended for private runs with explicit keys.
-Provider base URLs are HTTPS-only and block localhost, private, link-local, multicast, and metadata hosts.
+公开演示可以保持 `mock`。真实模型适合私有运行，或在设置访问口令后开放给可信用户。模型服务地址必须使用 HTTPS，并会阻止 localhost、私有地址、链路本地地址、多播地址和云元数据地址。
 
-Prompt profiles:
+提示词方案：
 
-- `default` is the built-in PaperShield profile.
-- `research_writing_zh_word_v1` is a PaperShield-owned rewrite inspired by public research-writing prompt patterns. It adds stronger system-level guardrails for untrusted draft content, citation placeholders, Word-compatible plain text output, and mechanical-style review without making external detector claims.
+- `default`：PaperShield 内置稳妥方案。
+- `research_writing_zh_word_v1`：PaperShield 自有中文研究写作方案，强调不信任草稿内容、保护引注占位符、输出 Word 兼容纯文本，并避免外部检测器承诺。
 
-Provider helper endpoints:
+模型辅助接口：
 
-- `GET /api/provider/status` reports provider, model, prompt profile, timeout, retry, and whether an API key is present without returning the key.
-- `POST /api/provider/check` tests the selected provider mode; `mock` is local and free, while `env` may call the configured provider.
-- `GET /api/runtime/policy` reports active upload/text/paragraph limits and provider configuration policy.
+- `GET /api/provider/status`：返回模型服务、模型名、提示词方案、超时、重试和是否存在 API key，不返回密钥。
+- `GET /api/provider/presets`：返回常见模型服务商预设。
+- `POST /api/provider/session`：验证访问口令，成功后前端解锁模型配置区。
+- `POST /api/provider/config`：保存非密钥字段，并把 API key 暂存于当前后端进程内。
+- `POST /api/provider/check`：测试选定模型模式；`mock` 本地免费，外部模型会调用配置的服务商。
+- `GET /api/runtime/policy`：返回上传、文本、段落限制和模型配置策略。
