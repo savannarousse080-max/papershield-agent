@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>PaperShield 审阅工作台</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23070b0a'/%3E%3Cpath d='M16 13h23l9 9v29H16z' fill='%23f2efe2'/%3E%3Cpath d='M39 13v10h9' fill='%23c7a45c'/%3E%3Cpath d='M23 31h24M23 39h18M23 47h13' stroke='%2314201b' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
+    <link rel="stylesheet" href="/static/styles.css?v=1.10" />
+  </head>
+  <body>
+    <a class="skip-link" href="#review-workbench">跳到逐段审阅</a>
+    <main class="app-shell">
+      <header class="app-topbar" aria-label="PaperShield 工作台状态">
+        <div class="brand-block">
+          <p class="eyebrow">PaperShield Agent</p>
+          <h1>PaperShield 学术稿件智能审阅平台</h1>
+          <p class="topline">面向法学、经济学与通用社科领域，提供正文识别、引用保护、语义保真诊断与可复核润色工作流。</p>
+        </div>
+        <div class="topbar-actions">
+          <div class="status" id="status" role="status" aria-live="polite">本地演示模式已就绪</div>
+        </div>
+      </header>
+
+      <section class="workbench-grid" aria-label="PaperShield 审阅工作区" data-resizable-workbench>
+        <aside class="control-rail" aria-label="输入与运行">
+          <form id="optimize-form" class="panel source-panel">
+            <input id="provider-mode-input" name="provider_mode" type="hidden" value="configured" />
+            <div class="section-head">
+              <div>
+                <p class="kicker">Source</p>
+                <h2>输入与运行</h2>
+              </div>
+              <span class="quiet-badge">txt / docx</span>
+            </div>
+
+            <div class="sample-row" aria-label="演示样例">
+              <button class="ghost-button" data-sample="law" type="button">法学样例</button>
+              <button class="ghost-button" data-sample="economics" type="button">经济样例</button>
+              <button class="ghost-button" data-sample="general" type="button">通用社科样例</button>
+            </div>
+
+            <label class="draft-field" for="text-input">
+              <span>草稿文本</span>
+              <textarea id="text-input" name="text" placeholder="粘贴你有权编辑的学术草稿段落。">此外，数据安全问题需要完善[1]。因此，相关制度建设具有重要意义。</textarea>
+            </label>
+
+            <label class="file-drop" id="file-drop">
+              <span class="file-drop-title">上传 .txt/.docx</span>
+              <span class="file-drop-copy" id="file-name">未选择文件，粘贴文本也可以直接运行。</span>
+              <input name="file" type="file" accept=".txt,.docx,text/plain,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
+            </label>
+
+            <fieldset class="field-group">
+              <legend>领域</legend>
+              <div class="segmented-control">
+                <label>
+                  <input name="domain" type="radio" value="law" checked />
+                  <span>法学</span>
+                </label>
+                <label>
+                  <input name="domain" type="radio" value="economics" />
+                  <span>经济学</span>
+                </label>
+                <label>
+                  <input name="domain" type="radio" value="general" />
+                  <span>通用社科领域</span>
+                </label>
+              </div>
+            </fieldset>
+
+            <label class="switch-control">
+              <span>
+                <strong>仅分析模式</strong>
+                <small>调用模型生成文章级诊断，不改写原文。</small>
+              </span>
+              <input name="analysis_only" type="checkbox" value="true" />
+            </label>
+
+            <div class="request-estimate" id="request-estimate">最低请求数估算：2 次</div>
+            <button class="primary-button run-button" id="run-button" type="submit">运行诊断</button>
+          </form>
+
+          <details class="panel model-settings" id="model-settings">
+            <summary>
+              <span>
+                <span class="kicker">Runtime</span>
+                <strong>模型与运行环境</strong>
+                <small id="provider-summary">配置加载中...</small>
+              </span>
+              <span class="summary-caret" aria-hidden="true">⌄</span>
+            </summary>
+            <form id="provider-config-form">
+              <div class="settings-grid">
+                <label>
+                  <span class="field-label">模式 <span class="help-dot" tabindex="0" data-tooltip="本地演示无需 API key；外部模型会使用你配置的厂商、模型和 key。">?</span></span>
+                  <select id="provider-mode-setting">
+                    <option value="mock">本地演示模型</option>
+                    <option value="configured">外部模型</option>
+                  </select>
+                </label>
+                <label>
+                  <span class="field-label">厂商预设 <span class="help-dot" tabindex="0" data-tooltip="预填常见模型服务商的接口地址和推荐模型名，可再手动调整。">?</span></span>
+                  <select id="provider-preset"></select>
+                </label>
+                <label>
+                  <span class="field-label">接口类型 <span class="help-dot" tabindex="0" data-tooltip="选择服务商兼容的调用协议。大多数国内模型可用 openai-compatible。">?</span></span>
+                  <select id="provider-provider">
+                    <option value="mock">mock</option>
+                    <option value="openai-compatible">openai-compatible</option>
+                    <option value="openai">openai</option>
+                    <option value="anthropic">anthropic</option>
+                  </select>
+                </label>
+                <label>
+                  <span class="field-label">提示词方案 <span class="help-dot" tabindex="0" data-tooltip="控制润色与诊断的写作风格，默认方案更稳妥，研究写作方案更强调中文学术表达。">?</span></span>
+                  <select id="provider-profile">
+                    <option value="default">default</option>
+                    <option value="research_writing_zh_word_v1">research_writing_zh_word_v1</option>
+                  </select>
+                </label>
+                <label class="span-2">
+                  <span class="field-label">服务地址 <span class="help-dot" tabindex="0" data-tooltip="模型服务的 HTTPS 接口地址，例如厂商文档中的 OpenAI-compatible base URL。">?</span></span>
+                  <input id="provider-base-url" type="url" placeholder="https://provider.example.com/v1" spellcheck="false" />
+                </label>
+                <label>
+                  <span class="field-label">模型/端点 ID <span class="help-dot" tabindex="0" data-tooltip="填写模型名称或厂商端点 ID，例如 qwen-plus、deepseek-chat。">?</span></span>
+                  <input id="provider-model" type="text" placeholder="模型名或 endpoint id" spellcheck="false" />
+                </label>
+                <label>
+                  <span class="field-label">API key <span class="help-dot" tabindex="0" data-tooltip="模型服务密钥。页面不会回显，当前后端进程重启后需要重新配置。">?</span></span>
+                  <input id="provider-api-key" type="password" autocomplete="off" placeholder="保存后只显示已配置" />
+                </label>
+                <label>
+                  <span class="field-label">超时时间 <span class="help-dot" tabindex="0" data-tooltip="单次模型请求最长等待秒数。网络慢或长文档可适当调大。">?</span></span>
+                  <input id="provider-timeout" type="number" min="1" step="1" value="120" inputmode="numeric" />
+                </label>
+                <label>
+                  <span class="field-label">失败重试次数 <span class="help-dot" tabindex="0" data-tooltip="模型请求临时失败时自动重试的次数。建议 0-1，过高会增加等待时间和额度消耗。">?</span></span>
+                  <input id="provider-max-retries" type="number" min="0" step="1" value="0" inputmode="numeric" />
+                </label>
+              </div>
+              <div class="provider-strip">
+                <div class="provider-status-card">
+                  <span class="text-label">连接状态</span>
+                  <strong id="provider-status" aria-live="polite">未测试</strong>
+                </div>
+                <div class="provider-actions">
+                  <button class="secondary-button" id="check-provider" type="button">测试连接</button>
+                  <button class="secondary-button" id="clear-provider-key" type="button">清空 Key</button>
+                  <button class="secondary-button" id="save-provider" type="submit">保存设置</button>
+                </div>
+                <details class="provider-diagnostics" id="provider-diagnostics" hidden>
+                  <summary>连接诊断</summary>
+                  <div class="provider-alert" id="provider-alert" role="status" aria-live="polite"></div>
+                </details>
+              </div>
+            </form>
+          </details>
+        </aside>
+
+        <div
+          class="workspace-resizer"
+          id="workspace-resizer"
+          role="separator"
+          tabindex="0"
+          aria-label="拖动调整输入区与审阅区宽度"
+          aria-orientation="vertical"
+          aria-valuemin="292"
+          aria-valuemax="520"
+          aria-valuenow="340"
+          title="拖动调整输入区与审阅区宽度；双击恢复默认"
+        >
+          <span aria-hidden="true"></span>
+        </div>
+
+        <section class="review-column" aria-label="逐段审阅画布">
+          <div class="panel result-summary" id="result-summary" aria-live="polite">
+            <div>
+              <p class="kicker">Review State</p>
+              <h2>等待运行</h2>
+            </div>
+            <p>运行后将在这里汇总段落数、工作流路线、引用保留与复核风险。</p>
+          </div>
+
+          <article class="panel review-workbench-panel">
+            <div class="section-head">
+              <div>
+                <p class="kicker">Paragraph Review</p>
+                <h2>逐段审阅</h2>
+              </div>
+              <div class="legend" aria-label="审阅图例">
+                <span>原文</span>
+                <span>润色稿</span>
+                <span>差异</span>
+              </div>
+            </div>
+            <div class="review-workbench" id="review-workbench" aria-live="polite">
+              <div class="empty-state">
+                <strong>等待 Agent 运行</strong>
+                <span>诊断完成后，每个段落都会显示原文、润色稿、风险标签和采纳建议。</span>
+              </div>
+            </div>
+          </article>
+        </section>
+
+        <aside class="artifact-rail" aria-label="最终稿与证据">
+          <div class="artifact-tabs" role="tablist" aria-label="右侧面板">
+            <button class="artifact-tab active" data-artifact-tab="final" type="button" role="tab" aria-selected="true">最终稿</button>
+            <button class="artifact-tab" data-artifact-tab="evidence" type="button" role="tab" aria-selected="false">证据</button>
+            <button class="artifact-tab" data-artifact-tab="workflow" type="button" role="tab" aria-selected="false">工作流</button>
+          </div>
+
+          <section class="artifact-panel active" data-artifact-panel="final">
+            <article class="panel output-panel">
+              <div class="section-head">
+                <div>
+                  <p class="kicker">Artifact</p>
+                  <h2>最终稿</h2>
+                </div>
+                <button class="secondary-button copy-final" id="copy-final" type="button" disabled>复制最终稿</button>
+              </div>
+              <pre id="final-text">等待运行...</pre>
+            </article>
+            <article class="panel export-panel">
+              <div class="section-head">
+                <div>
+                  <p class="kicker">Export</p>
+                  <h2>导出报告</h2>
+                </div>
+              </div>
+              <div class="export-actions">
+                <button class="secondary-button" id="download-markdown" type="button" disabled>导出 Markdown</button>
+                <button class="secondary-button" id="download-html" type="button" disabled>导出 HTML</button>
+                <button class="secondary-button" id="download-word" type="button" disabled>导出 Word</button>
+              </div>
+            </article>
+          </section>
+
+          <section class="artifact-panel" data-artifact-panel="evidence" hidden>
+            <article class="panel metrics-panel">
+              <div class="section-head">
+                <div>
+                  <p class="kicker">Signals</p>
+                  <h2>组合指标</h2>
+                </div>
+              </div>
+              <div class="metric-list" id="metrics">
+                <div class="empty-line">等待运行...</div>
+              </div>
+            </article>
+            <article class="panel review-panel">
+              <div class="section-head">
+                <div>
+                  <p class="kicker">Manual Review</p>
+                  <h2>人工复核清单</h2>
+                </div>
+              </div>
+              <ul id="review-items">
+                <li>等待运行...</li>
+              </ul>
+            </article>
+          </section>
+
+          <section class="artifact-panel" data-artifact-panel="workflow" hidden>
+            <article class="panel workflow-panel">
+              <div class="section-head">
+                <div>
+                  <p class="kicker">Trace</p>
+                  <h2>工作流轨迹</h2>
+                </div>
+              </div>
+              <div class="workflow-trace" id="workflow-trace">等待运行...</div>
+            </article>
+          </section>
+        </aside>
+      </section>
+    </main>
+    <script src="/static/app.js?v=1.10"></script>
+  </body>
+</html>

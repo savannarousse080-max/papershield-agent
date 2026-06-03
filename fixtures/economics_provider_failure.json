@@ -1,0 +1,14 @@
+{
+  "id": "economics_provider_failure",
+  "domain": "economics",
+  "source_format": "txt",
+  "text": "此外，市场失灵需要政府干预[2]。",
+  "expect": {
+    "paragraph_count": 1,
+    "citation_retention_min": 1.0,
+    "contains": ["[2]"],
+    "fallback_contains": ["市场失灵需要政府干预[2]"],
+    "not_contains": ["问题并不轻"],
+    "fallback_on_provider_failure": true
+  }
+}

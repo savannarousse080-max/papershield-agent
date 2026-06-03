@@ -1,0 +1,15 @@
+{
+  "id": "law_citation_reference",
+  "domain": "law",
+  "source_format": "txt",
+  "text": "一、问题提出\n\n此外，数据安全问题需要完善[1]。\n\n参考文献\n\n[1] 张三：《数据法研究》，2021。",
+  "expect": {
+    "paragraph_count": 1,
+    "citation_retention_min": 1.0,
+    "contains": ["[1]", "数据安全的法益完整性"],
+    "fallback_contains": ["[1]", "此外，数据安全问题需要完善[1]。"],
+    "preserved": ["一、问题提出", "参考文献", "[1] 张三：《数据法研究》，2021。"],
+    "not_contains": ["问题并不轻"],
+    "fallback_on_provider_failure": true
+  }
+}

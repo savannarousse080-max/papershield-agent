@@ -1,0 +1,13 @@
+{
+  "id": "economics_title_table",
+  "domain": "economics",
+  "source_format": "txt",
+  "text": "二、模型设定\n\n此外，市场失灵需要政府干预[2]。\n\n表1 变量定义\n\nReferences\n\nSmith, 2020.",
+  "expect": {
+    "paragraph_count": 1,
+    "citation_retention_min": 1.0,
+    "contains": ["[2]"],
+    "preserved": ["二、模型设定", "表1 变量定义", "References", "Smith, 2020."],
+    "not_contains": ["问题并不轻"]
+  }
+}

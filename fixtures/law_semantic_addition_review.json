@@ -1,0 +1,14 @@
+{
+  "id": "law_semantic_addition_review",
+  "domain": "law",
+  "source_format": "txt",
+  "text": "此外，数据安全问题需要完善[1]。",
+  "expect": {
+    "paragraph_count": 1,
+    "citation_retention_min": 1.0,
+    "contains": ["[1]", "数据安全"],
+    "not_contains": ["问题并不轻"],
+    "review_required_min": 1,
+    "risk_flags": ["term_change_risk"]
+  }
+}

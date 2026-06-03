@@ -1,0 +1,20 @@
+services:
+  - type: web
+    name: papershield-agent
+    runtime: docker
+    plan: free
+    autoDeploy: true
+    healthCheckPath: /healthz
+    envVars:
+      - key: PAPERSHIELD_LLM_PROVIDER
+        value: mock
+      - key: PAPERSHIELD_PROVIDER_CONFIG_ENABLED
+        value: "0"
+      - key: PAPERSHIELD_PROMPT_PROFILE
+        value: default
+      - key: PAPERSHIELD_MAX_UPLOAD_BYTES
+        value: "2097152"
+      - key: PAPERSHIELD_MAX_TEXT_CHARS
+        value: "60000"
+      - key: PAPERSHIELD_MAX_PARAGRAPHS
+        value: "80"

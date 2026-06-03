@@ -1,0 +1,1 @@
+"""PaperShield web demo package."""

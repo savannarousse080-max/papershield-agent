@@ -1,0 +1,8 @@
+services:
+  papershield:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - PAPERSHIELD_LLM_PROVIDER=mock
+      - PAPERSHIELD_PROVIDER_CONFIG_ENABLED=0

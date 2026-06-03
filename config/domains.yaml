@@ -1,0 +1,17 @@
+domains:
+  law:
+    display_name: "法学（含数字刑法）"
+    protected_terms:
+      - "法定构成要件"
+      - "法益"
+      - "注意义务"
+      - "教义学"
+  economics:
+    display_name: "经济学"
+    protected_terms:
+      - "边际成本"
+      - "帕累托改进"
+      - "信息不对称"
+  general:
+    display_name: "通用人文社科"
+    protected_terms: []

@@ -1,0 +1,8 @@
+llm:
+  provider_env: "PAPERSHIELD_LLM_PROVIDER"
+  model_env: "PAPERSHIELD_LLM_MODEL"
+  default_provider: "openai"
+scoring:
+  perplexity_model: "uer/gpt2-chinese-cluecorpussmall"
+  max_retries: 1
+  template_reduction_threshold: 0.75

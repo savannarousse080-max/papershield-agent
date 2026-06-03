@@ -1,0 +1,16 @@
+{
+  "id": "general_analysis_only",
+  "domain": "general",
+  "source_format": "txt",
+  "analysis_only": true,
+  "text": "1. 研究背景\n\n综上所述，平台治理需要进一步完善(李四, 2022)。\n\n图 1 平台治理结构",
+  "expect": {
+    "paragraph_count": 1,
+    "citation_retention_min": 1.0,
+    "contains": ["综上所述，平台治理需要进一步完善(李四, 2022)。"],
+    "preserved": ["1. 研究背景", "图 1 平台治理结构"],
+    "status_counts": {
+      "analysis_only": 1
+    }
+  }
+}
