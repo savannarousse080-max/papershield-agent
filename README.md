@@ -49,6 +49,7 @@ Render 或 Railway 部署要点：
 - 使用 `/healthz` 作为健康检查路径。
 - 公开演示可保持 `PAPERSHIELD_LLM_PROVIDER=mock`，不消耗任何模型额度。
 - 若要让登录用户在网页中填写模型信息并调用模型，设置 `PAPERSHIELD_PROVIDER_CONFIG_ENABLED=1`，并在平台环境变量里设置 `PAPERSHIELD_ADMIN_TOKEN`。
+- Render 这类公网环境未设置 `PAPERSHIELD_ADMIN_TOKEN` 时，模型配置区会自动保持锁定。
 - 不要把真实 API key 或访问口令提交到 GitHub。
 
 免费 GitHub 同步部署流程见 `docs/deployment-free.md`。仓库已包含 `render.yaml`，用于 Render Blueprint/Web Service 部署，并开启从 `main` 分支自动重新部署。

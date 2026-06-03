@@ -90,12 +90,20 @@ def runtime_policy_payload() -> dict:
 
 
 def provider_config_enabled() -> bool:
-    return _env_bool("PAPERSHIELD_PROVIDER_CONFIG_ENABLED", True)
+    enabled = _env_bool("PAPERSHIELD_PROVIDER_CONFIG_ENABLED", True)
+    if enabled and _requires_admin_token_for_provider_config() and not admin_token():
+        return False
+    return enabled
 
 
 def admin_token() -> str | None:
     value = os.environ.get("PAPERSHIELD_ADMIN_TOKEN", "").strip()
     return value or None
+
+
+def _requires_admin_token_for_provider_config() -> bool:
+    default = _env_bool("RENDER", False)
+    return _env_bool("PAPERSHIELD_REQUIRE_ADMIN_TOKEN_FOR_PROVIDER_CONFIG", default)
 
 
 def validate_provider_base_url(base_url: str) -> str:

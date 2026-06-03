@@ -248,6 +248,31 @@ class WebAppTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 403)
 
+    def test_render_provider_config_requires_token_even_when_enabled(self):
+        env = {
+            "PAPERSHIELD_PROVIDER_CONFIG_PATH": self.config_path,
+            "PAPERSHIELD_PROVIDER_CONFIG_ENABLED": "1",
+            "RENDER": "true",
+        }
+        with patch.dict(os.environ, env, clear=True):
+            reset_provider_runtime_for_tests()
+            client = TestClient(create_app())
+            policy = client.get("/api/runtime/policy").json()
+            response = client.post(
+                "/api/provider/config",
+                json={
+                    "preset_id": "mock",
+                    "provider": "mock",
+                    "base_url": "",
+                    "model": "mock",
+                    "prompt_profile": "default",
+                },
+            )
+
+        self.assertFalse(policy["provider_config_enabled"])
+        self.assertFalse(policy["admin_token_required"])
+        self.assertEqual(response.status_code, 403)
+
     def test_disabled_provider_config_ignores_persisted_local_provider(self):
         with open(self.config_path, "w", encoding="utf-8") as handle:
             handle.write(

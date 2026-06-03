@@ -37,7 +37,7 @@ PAPERSHIELD_PROMPT_PROFILE=default
 3. 保存后触发一次 `Manual Deploy`，或推送一个新提交到 GitHub 触发自动部署。
 4. 部署完成后访问 `/api/runtime/policy`，确认 `provider_config_enabled` 为 `true`，`admin_token_required` 为 `true`。
 
-`PAPERSHIELD_ADMIN_TOKEN` 是网页登录模型配置区的访问口令。它不是模型 API key，不要写进 README、代码或提交记录。
+`PAPERSHIELD_ADMIN_TOKEN` 是网页登录模型配置区的访问口令。它不是模型 API key，不要写进 README、代码或提交记录。Render 公网环境中，如果没有设置这个访问口令，后端会自动锁定模型配置区，即使 `PAPERSHIELD_PROVIDER_CONFIG_ENABLED=1` 也不会开放配置接口。
 
 ## 公开演示环境
 
