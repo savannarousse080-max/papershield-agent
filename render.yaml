@@ -9,9 +9,15 @@ services:
       - key: PAPERSHIELD_LLM_PROVIDER
         value: mock
       - key: PAPERSHIELD_PROVIDER_CONFIG_ENABLED
-        value: "1"
+        value: "0"
       - key: PAPERSHIELD_ADMIN_TOKEN
         sync: false
+      - key: PAPERSHIELD_CONFIG_ADMIN_TOKEN
+        sync: false
+      - key: PAPERSHIELD_REQUIRE_ADMIN_TOKEN_FOR_PROVIDER_USE
+        value: "1"
+      - key: PAPERSHIELD_HOSTED_FREE_RUN_LIMIT
+        value: "3"
       - key: PAPERSHIELD_PROMPT_PROFILE
         value: default
       - key: PAPERSHIELD_MAX_UPLOAD_BYTES

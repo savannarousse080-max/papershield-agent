@@ -15,6 +15,7 @@ DEFAULT_MAX_TEXT_CHARS = 60_000
 DEFAULT_MAX_PARAGRAPHS = 80
 DEFAULT_OPTIMIZE_REQUESTS_PER_MINUTE = 60
 DEFAULT_PROVIDER_REQUESTS_PER_MINUTE = 30
+DEFAULT_HOSTED_FREE_RUN_LIMIT = 3
 
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
@@ -80,10 +81,15 @@ def runtime_limits() -> RuntimeLimits:
     )
 
 
-def runtime_policy_payload() -> dict:
+def runtime_policy_payload(hosted_model_enabled: bool | None = None) -> dict:
+    hosted_enabled = bool(admin_token()) if hosted_model_enabled is None else bool(hosted_model_enabled)
     return {
         "provider_config_enabled": provider_config_enabled(),
         "admin_token_required": bool(admin_token()),
+        "provider_control_token_required": bool(provider_control_token()),
+        "admin_token_required_for_provider_use": require_admin_token_for_provider_use(),
+        "hosted_model_enabled": hosted_enabled,
+        "hosted_free_run_limit": hosted_free_run_limit(),
         "provider_base_url_policy": "https-only; localhost, private, link-local, multicast, and metadata hosts are blocked",
         "limits": asdict(runtime_limits()),
     }
@@ -91,7 +97,7 @@ def runtime_policy_payload() -> dict:
 
 def provider_config_enabled() -> bool:
     enabled = _env_bool("PAPERSHIELD_PROVIDER_CONFIG_ENABLED", True)
-    if enabled and _requires_admin_token_for_provider_config() and not admin_token():
+    if enabled and _requires_admin_token_for_provider_config() and not provider_control_token():
         return False
     return enabled
 
@@ -99,6 +105,18 @@ def provider_config_enabled() -> bool:
 def admin_token() -> str | None:
     value = os.environ.get("PAPERSHIELD_ADMIN_TOKEN", "").strip()
     return value or None
+
+
+def provider_control_token() -> str | None:
+    return os.environ.get("PAPERSHIELD_CONFIG_ADMIN_TOKEN", "").strip() or admin_token()
+
+
+def require_admin_token_for_provider_use() -> bool:
+    return _env_bool("PAPERSHIELD_REQUIRE_ADMIN_TOKEN_FOR_PROVIDER_USE", bool(admin_token()))
+
+
+def hosted_free_run_limit() -> int:
+    return _env_int("PAPERSHIELD_HOSTED_FREE_RUN_LIMIT", DEFAULT_HOSTED_FREE_RUN_LIMIT, 0)
 
 
 def _requires_admin_token_for_provider_config() -> bool:

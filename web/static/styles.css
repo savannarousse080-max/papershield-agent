@@ -1036,6 +1036,16 @@ a:focus-visible {
   background: rgba(255, 255, 255, 0.03);
 }
 
+.hosted-mode .user-provider-field,
+.mock-mode .user-provider-field {
+  display: none;
+}
+
+.hosted-mode .settings-grid,
+.mock-mode .settings-grid {
+  grid-template-columns: 1fr;
+}
+
 .locked-mode select,
 .locked-mode input,
 .locked-mode .custom-select-trigger {
@@ -1369,6 +1379,31 @@ pre {
 .workflow-nodes {
   display: grid;
   gap: 8px;
+}
+
+.provider-trace {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 14px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.provider-trace-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: baseline;
+}
+
+.provider-trace-errors {
+  display: grid;
+  gap: 6px;
+  color: var(--danger);
+}
+
+.provider-trace-errors p {
+  margin: 0;
 }
 
 .workflow-node {

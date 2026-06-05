@@ -22,6 +22,20 @@ class FakeResponse:
         return json.dumps(self.body).encode("utf-8")
 
 
+class RawResponse:
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def read(self):
+        return self.body
+
+
 class LLMTests(unittest.TestCase):
     def test_mock_provider_does_not_inject_fixed_opening_sentence(self):
         client = MockLLMClient()
@@ -86,6 +100,26 @@ class LLMTests(unittest.TestCase):
 
         self.assertEqual(result, "ok")
         self.assertEqual(len(calls), 2)
+
+    def test_openai_compatible_client_reports_empty_json_response(self):
+        settings = LLMSettings(provider="openai", model="demo", api_key="key", max_retries=0)
+        client = OpenAICompatibleClient(settings)
+
+        with patch("urllib.request.urlopen", return_value=RawResponse(b"")):
+            with self.assertRaises(RuntimeError) as context:
+                client.complete([{"role": "user", "content": "hello"}])
+
+        self.assertIn("empty response body", str(context.exception))
+
+    def test_openai_compatible_client_reports_empty_message_content(self):
+        settings = LLMSettings(provider="openai", model="demo", api_key="key", max_retries=0)
+        client = OpenAICompatibleClient(settings)
+
+        with patch("urllib.request.urlopen", return_value=FakeResponse({"choices": [{"message": {"content": ""}}]})):
+            with self.assertRaises(RuntimeError) as context:
+                client.complete([{"role": "user", "content": "hello"}])
+
+        self.assertIn("empty message content", str(context.exception))
 
     def test_openai_compatible_client_rejects_unsafe_base_url(self):
         unsafe_urls = [

@@ -32,6 +32,10 @@ class ProviderConfigError(RuntimeError):
     pass
 
 
+class ExternalModelCallError(RuntimeError):
+    pass
+
+
 class ProviderHTTPStatusError(RuntimeError):
     def __init__(self, status_code: int, detail: str):
         self.status_code = status_code
@@ -40,6 +44,62 @@ class ProviderHTTPStatusError(RuntimeError):
 
 
 TRANSIENT_HTTP_STATUS_CODES = {408, 409, 429, 500, 502, 503, 504}
+
+
+@dataclass
+class ProviderTrace:
+    mode: str
+    provider: str
+    model: str
+    external_call_required: bool = False
+    external_call_attempted: bool = False
+    call_count: int = 0
+    elapsed_ms: int = 0
+    status: str = "not_started"
+    errors: list[str] | None = None
+
+    def to_dict(self) -> dict:
+        return {
+            "mode": self.mode,
+            "provider": self.provider,
+            "model": self.model,
+            "external_call_required": self.external_call_required,
+            "external_call_attempted": self.external_call_attempted,
+            "call_count": self.call_count,
+            "elapsed_ms": self.elapsed_ms,
+            "status": self.status,
+            "errors": list(self.errors or []),
+        }
+
+
+class TracingLLMClient:
+    def __init__(self, client: LLMClient, trace: ProviderTrace):
+        self.client = client
+        self.trace = trace
+
+    def complete(self, messages: list[dict[str, str]]) -> str:
+        started = time.perf_counter()
+        self.trace.call_count += 1
+        if self.trace.external_call_required:
+            self.trace.external_call_attempted = True
+        try:
+            result = self.client.complete(messages)
+            if self.trace.status != "failed":
+                self.trace.status = "success"
+            return result
+        except Exception as exc:
+            self.trace.status = "failed"
+            errors = self.trace.errors if self.trace.errors is not None else []
+            errors.append(_sanitize_trace_error(str(exc)))
+            self.trace.errors = errors
+            raise
+        finally:
+            self.trace.elapsed_ms += int((time.perf_counter() - started) * 1000)
+
+    def to_trace_payload(self) -> dict:
+        if self.trace.status == "not_started":
+            self.trace.status = "success" if not self.trace.external_call_required else "not_called"
+        return self.trace.to_dict()
 
 
 class MockLLMClient:
@@ -96,6 +156,18 @@ def _extract_draft_text(content: str) -> str:
     if match:
         return match.group(1).strip()
     return content.split("\n\n", 1)[-1].strip()
+
+
+def _sanitize_trace_error(message: str) -> str:
+    sanitized = re.sub(r"Bearer\s+[^\s,;]+", "Bearer <hidden>", message, flags=re.IGNORECASE)
+    sanitized = re.sub(
+        r"((?:api[_-]?key|x-api-key|authorization)['\"]?\s*[:=]\s*)['\"]?[^,'\"\s;}]+",
+        r"\1<hidden>",
+        sanitized,
+        flags=re.IGNORECASE,
+    )
+    sanitized = re.sub(r"\b(sk-[A-Za-z0-9._-]{4,})\b", "<hidden>", sanitized)
+    return sanitized[:500]
 
 
 class OpenAICompatibleClient:
@@ -174,18 +246,44 @@ def _post_chat_completion(request: urllib.request.Request, timeout: int) -> str:
     choices = body.get("choices") or []
     if not choices:
         raise RuntimeError("LLM provider returned no choices")
-    return choices[0].get("message", {}).get("content", "").strip()
+    content = _extract_chat_message_content(choices[0])
+    if not content:
+        raise RuntimeError("LLM provider returned empty message content")
+    return content
+
+
+def _extract_chat_message_content(choice: dict) -> str:
+    message = choice.get("message") if isinstance(choice, dict) else None
+    if isinstance(message, dict):
+        content = message.get("content")
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts = []
+            for part in content:
+                if isinstance(part, dict) and isinstance(part.get("text"), str):
+                    parts.append(part["text"])
+                elif isinstance(part, str):
+                    parts.append(part)
+            return "\n".join(parts).strip()
+    text = choice.get("text") if isinstance(choice, dict) else None
+    return text.strip() if isinstance(text, str) else ""
 
 
 def _post_json(request: urllib.request.Request, timeout: int) -> dict:
     try:
         # Provider URLs are HTTPS-only and private hosts are rejected before request construction.
         with urllib.request.urlopen(request, timeout=timeout) as response:  # nosec B310
-            body = json.loads(response.read().decode("utf-8"))
+            raw_body = response.read().decode("utf-8", errors="replace")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")
         raise ProviderHTTPStatusError(exc.code, detail) from exc
-    return body
+    if not raw_body.strip():
+        raise RuntimeError("LLM provider returned an empty response body")
+    try:
+        return json.loads(raw_body)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("LLM provider returned a non-JSON response body") from exc
 
 
 def _normalize_provider_base_url(base_url: str) -> str:

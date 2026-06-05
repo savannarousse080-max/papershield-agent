@@ -11,6 +11,7 @@ const downloadMarkdownButton = document.querySelector("#download-markdown");
 const downloadHtmlButton = document.querySelector("#download-html");
 const downloadWordButton = document.querySelector("#download-word");
 const checkProviderButton = document.querySelector("#check-provider");
+const saveProviderButton = document.querySelector("#save-provider");
 const providerStatus = document.querySelector("#provider-status");
 const providerModeSetting = document.querySelector("#provider-mode-setting");
 const providerModeInput = document.querySelector("#provider-mode-input");
@@ -53,7 +54,9 @@ const CUSTOM_SELECT_SOURCES = [
 ];
 const WORKBENCH_WIDTH_KEY = "papershield.workbench.leftWidth.v1";
 const ADMIN_TOKEN_STORAGE_KEY = "papershield.adminToken.v1";
+const HOSTED_CLIENT_ID_STORAGE_KEY = "papershield.hostedClientId.v1";
 const USER_NOTICE_ACCEPTED_KEY = "papershield.userNotice.accepted.v1";
+const DEFAULT_HOSTED_FREE_RUN_LIMIT = 3;
 const DEFAULT_CONTROL_WIDTH = 340;
 const MIN_CONTROL_WIDTH = 292;
 const MAX_CONTROL_WIDTH = 520;
@@ -156,12 +159,17 @@ let paragraphChoices = new Map();
 let providerPresets = new Map();
 let currentProviderConfig = null;
 let runtimePolicy = null;
+let hostedUsage = null;
+let providerModeTouched = false;
+let providerControlAuthenticated = false;
+let hostedAccessAuthenticated = hasAdminToken();
 let customSelects = new Map();
 
 initializeCustomSelects();
 initializeWorkbenchResizer();
 initializeUserNotice();
 loadRuntimePolicy();
+validateStoredProviderSession();
 loadProviderSettings();
 updateRequestEstimate();
 activateArtifactTab("final");
@@ -179,8 +187,11 @@ form.addEventListener("submit", async (event) => {
     if (!file || file.size === 0) {
       formData.delete("file");
     }
-    if (providerModeRequiresAuth(formData.get("provider_mode"))) {
-      throw new Error("请先输入访问口令并登录，再调用外部模型。");
+    const runProviderMode = resolveProviderModeForRun();
+    formData.set("provider_mode", runProviderMode);
+    appendUserProviderFormData(formData, runProviderMode);
+    if (providerModeRequiresAuth(runProviderMode)) {
+      throw new Error("请先输入访问密匙并登录，再使用托管免费额度。");
     }
     const optimizeOptions = {
       method: "POST",
@@ -191,13 +202,15 @@ form.addEventListener("submit", async (event) => {
       optimizeOptions.headers = headers;
     }
     const response = await fetch("/api/optimize", optimizeOptions);
-    const payload = await response.json();
+    const payload = await readJsonResponse(response, "审阅请求失败");
     if (!response.ok) {
-      throw new Error(payload.detail || "请求失败");
+      const error = new Error(payload.message || payload.detail || "请求失败");
+      error.payload = payload;
+      throw error;
     }
     renderResult(payload);
     if (payload.provider_error && payload.provider_error.failed) {
-      const message = payload.provider_error.all_fallback ? "模型调用失败，已保留原文" : "模型调用部分失败，请检查段落警告";
+      const message = payload.provider_error.all_fallback ? "本地模型调用失败，已保留原文" : "模型调用部分失败，请检查段落警告";
       setStatus(message, true);
       setProviderAlert(`${message}。${payload.provider_error.message || "请检查模型设置。"}`, true);
       activateArtifactTab("evidence");
@@ -209,7 +222,7 @@ form.addEventListener("submit", async (event) => {
       renderRequestEstimate(payload.paragraph_count);
     }
   } catch (error) {
-    renderErrorState(error.message);
+    renderErrorState(error.message, error.payload || null);
     setStatus(error.message, true);
     setProviderAlert(error.message, true);
   } finally {
@@ -241,6 +254,7 @@ providerAdminTokenInput.addEventListener("keydown", async (event) => {
 });
 
 providerModeSetting.addEventListener("change", () => {
+  providerModeTouched = true;
   syncProviderMode();
   updateRequestEstimate();
 });
@@ -285,24 +299,31 @@ acceptUserNoticeButton.addEventListener("click", acceptUserNotice);
 
 checkProviderButton.addEventListener("click", async () => {
   const providerData = new FormData();
-  providerData.set("provider_mode", providerModeInput.value || "configured");
   checkProviderButton.disabled = true;
   setProviderStatus("检测中...", "busy");
   clearProviderAlert();
   try {
-    if (providerApiKeyInput.value.trim()) {
+    const selectedMode = resolveProviderModeForRun();
+    if (selectedMode === "user") {
+      appendUserProviderFormData(providerData, selectedMode);
+    } else if (selectedMode !== "hosted" && providerApiKeyInput.value.trim()) {
       await saveProviderConfig({ silent: true });
     }
+    const runProviderMode = resolveProviderModeForRun();
+    providerData.set("provider_mode", runProviderMode);
     const response = await fetch("/api/provider/check", {
       method: "POST",
       headers: providerAuthHeaders(),
       body: providerData,
     });
-    const payload = await response.json();
+    const payload = await readJsonResponse(response, "连接失败");
     if (!response.ok) {
       throw new Error(payload.detail || "连接失败");
     }
     setProviderStatus(payload.message || "连接可用", "success");
+    if (runProviderMode === "hosted") {
+      setProviderStatus(`托管额度剩余 ${hostedRunRemaining()} 次`, "success");
+    }
     setStatus("模型连接可用", false);
   } catch (error) {
     setProviderStatus("连接失败", "error");
@@ -380,8 +401,8 @@ async function loadProviderSettings() {
       fetch("/api/provider/presets"),
       fetch("/api/provider/config"),
     ]);
-    const presetsPayload = await presetsResponse.json();
-    const configPayload = await configResponse.json();
+    const presetsPayload = await readJsonResponse(presetsResponse, "厂商 preset 加载失败");
+    const configPayload = await readJsonResponse(configResponse, "模型配置加载失败");
     if (!presetsResponse.ok) throw new Error(presetsPayload.detail || "厂商 preset 加载失败");
     if (!configResponse.ok) throw new Error(configPayload.detail || "模型配置加载失败");
     populateProviderPresets(presetsPayload);
@@ -400,7 +421,7 @@ async function loadProviderSettings() {
 async function loadRuntimePolicy() {
   try {
     const response = await fetch("/api/runtime/policy");
-    const payload = await response.json();
+    const payload = await readJsonResponse(response, "运行策略加载失败");
     if (!response.ok) {
       throw new Error(payload.detail || "运行策略加载失败");
     }
@@ -414,32 +435,33 @@ async function loadRuntimePolicy() {
 function applyRuntimePolicy(policy) {
   const configDisabled = policy && policy.provider_config_enabled === false;
   const requiresLogin = Boolean(policy && policy.admin_token_required);
-  const loggedIn = hasAdminToken();
-  const authLocked = requiresLogin && !loggedIn;
-  const locked = Boolean(configDisabled || authLocked);
-  const controls = [
-    providerPresetSelect,
-    providerProviderSelect,
-    providerBaseUrlInput,
-    providerModelInput,
-    providerApiKeyInput,
-    providerProfileSelect,
-    providerTimeoutInput,
-    providerMaxRetriesInput,
-    providerModeSetting,
-    checkProviderButton,
-    clearProviderKeyButton,
-    document.querySelector("#save-provider"),
-  ];
-  for (const control of controls) {
-    if (control) control.disabled = Boolean(locked);
+  const hostedEnabled = Boolean(policy && policy.hosted_model_enabled);
+  const loggedIn = hostedAccessAuthenticated;
+  const authControlsEnabled = Boolean(requiresLogin && (hostedEnabled || policy.provider_control_token_required));
+  setHostedModeOptionState(hostedEnabled);
+  if (!hostedEnabled && providerModeSetting.value === "hosted") {
+    providerModeSetting.value = "mock";
+    providerModeTouched = false;
   }
-  providerConfigForm.classList.toggle("locked-mode", Boolean(locked));
-  providerConfigForm.classList.toggle("auth-locked", Boolean(authLocked));
-  providerAdminTokenInput.disabled = Boolean(configDisabled || !requiresLogin);
-  providerLoginButton.disabled = Boolean(configDisabled || !requiresLogin);
+  if (hostedEnabled && !providerModeTouched && (!currentProviderConfig || currentProviderConfig.provider === "mock")) {
+    providerModeSetting.value = "hosted";
+  }
+  const selectedMode = normalizeProviderMode(providerModeSetting.value);
+  const hostedSelected = selectedMode === "hosted";
+  const hostedLocked = hostedEnabled && hostedSelected && !loggedIn;
+  const siteConfigLocked = Boolean(configDisabled || (requiresLogin && !providerControlAuthenticated));
+  const formLocked = Boolean(configDisabled || hostedLocked);
+  checkProviderButton.disabled = Boolean(configDisabled || hostedLocked);
+  clearProviderKeyButton.disabled = Boolean(siteConfigLocked || selectedMode !== "user");
+  saveProviderButton.disabled = Boolean(siteConfigLocked || selectedMode !== "user");
+  providerModeSetting.disabled = Boolean(configDisabled);
+  providerConfigForm.classList.toggle("locked-mode", Boolean(formLocked));
+  providerConfigForm.classList.toggle("auth-locked", Boolean(hostedLocked));
+  providerAdminTokenInput.disabled = Boolean(configDisabled || !authControlsEnabled);
+  providerLoginButton.disabled = Boolean(configDisabled || !authControlsEnabled);
   providerLogoutButton.hidden = !loggedIn || !requiresLogin;
   providerLoginButton.hidden = loggedIn && requiresLogin;
+  syncProviderMode();
   syncAllCustomSelects();
   if (configDisabled) {
     setProviderStatus("公开演示模式", "locked");
@@ -447,17 +469,26 @@ function applyRuntimePolicy(policy) {
     setProviderAuthStatus("当前部署未开放模型配置。", "locked");
     return;
   }
-  if (authLocked) {
+  if (!hostedEnabled && selectedMode === "mock") {
+    setProviderAuthStatus("当前部署未启用托管模型；可使用本地演示或自备模型参数。", "neutral");
+    return;
+  }
+  if (hostedLocked) {
     setProviderStatus("等待登录", "locked");
-    setProviderAlert("请输入访问口令并登录后，再填写、测试或保存外部模型配置。", false);
-    setProviderAuthStatus("需要访问口令后才能配置模型。", "locked");
+    const limit = hostedRunLimit();
+    setProviderAlert(`输入访问密匙后可使用 ${limit} 次托管免费润色；也可以切换到自备模型参数。`, false);
+    setProviderAuthStatus("登录后可使用托管免费额度。", "locked");
     return;
   }
   if (requiresLogin && loggedIn) {
-    setProviderAuthStatus("已登录，可配置并调用外部模型。", "success");
+    setProviderAuthStatus(`已登录，可使用托管免费额度。剩余 ${hostedRunRemaining()} 次。`, "success");
     return;
   }
-  setProviderAuthStatus("当前环境未设置访问口令，可直接配置模型。", "neutral");
+  if (requiresLogin && !loggedIn) {
+    setProviderAuthStatus("自备模型可直接使用；托管额度需登录。", "neutral");
+    return;
+  }
+  setProviderAuthStatus("当前环境未设置访问密匙，可直接使用。", "neutral");
 }
 
 async function loginProviderConfig() {
@@ -471,21 +502,23 @@ async function loginProviderConfig() {
     setProviderAlert("请输入访问口令后再登录模型配置。", true);
     return;
   }
-  setProviderAuthStatus("正在验证访问口令...", "busy");
+    setProviderAuthStatus("正在验证访问密匙...", "busy");
   try {
     setAdminToken(token);
     const response = await fetch("/api/provider/session", {
       method: "POST",
       headers: providerAuthHeaders(token),
     });
-    const payload = await response.json();
+    const payload = await readJsonResponse(response, "访问口令错误或无权限。");
     if (!response.ok) {
       throw new Error(payload.detail || "访问口令错误或无权限。");
     }
     providerAdminTokenInput.value = "";
+    providerControlAuthenticated = Boolean(payload.provider_control_authenticated);
+    hostedAccessAuthenticated = Boolean(payload.hosted_access_authenticated);
     if (payload.admin_token_required) {
-      setProviderAuthStatus("已登录，可配置并调用外部模型。", "success");
-      setStatus("模型配置已解锁", false);
+      setProviderAuthStatus(`已登录，可使用托管免费额度。剩余 ${hostedRunRemaining()} 次。`, "success");
+      setStatus("托管免费额度已解锁", false);
     } else {
       setProviderAuthStatus("当前环境无需访问口令。", "neutral");
     }
@@ -494,29 +527,138 @@ async function loginProviderConfig() {
     await loadProviderSettings();
   } catch (error) {
     clearAdminToken();
+    providerControlAuthenticated = false;
+    hostedAccessAuthenticated = false;
     if (runtimePolicy) applyRuntimePolicy(runtimePolicy);
-    setProviderAuthStatus("访问口令错误或无权限。", "error");
-    setProviderAlert(error.message || "访问口令错误或无权限。", true);
+    setProviderAuthStatus("访问密匙错误或无权限。", "error");
+    setProviderAlert(error.message || "访问密匙错误或无权限。", true);
+  }
+}
+
+async function validateStoredProviderSession() {
+  if (!hasAdminToken()) return;
+  try {
+    const response = await fetch("/api/provider/session", {
+      method: "POST",
+      headers: providerAuthHeaders(),
+    });
+    const payload = await readJsonResponse(response, "访问密匙校验失败");
+    if (!response.ok) {
+      throw new Error(payload.detail || "访问密匙校验失败");
+    }
+    providerControlAuthenticated = Boolean(payload.provider_control_authenticated);
+    hostedAccessAuthenticated = Boolean(payload.hosted_access_authenticated);
+    if (runtimePolicy) applyRuntimePolicy(runtimePolicy);
+  } catch (error) {
+    clearAdminToken();
+    providerControlAuthenticated = false;
+    hostedAccessAuthenticated = false;
+    if (runtimePolicy) applyRuntimePolicy(runtimePolicy);
   }
 }
 
 function logoutProviderConfig() {
   clearAdminToken();
+  providerControlAuthenticated = false;
+  hostedAccessAuthenticated = false;
   providerAdminTokenInput.value = "";
   providerApiKeyInput.value = "";
   if (runtimePolicy) applyRuntimePolicy(runtimePolicy);
   setProviderAlert("已退出模型配置登录。", false);
-  setStatus("已退出模型配置登录", false);
+  setStatus("已退出托管额度登录", false);
 }
 
 function providerModeRequiresAuth(providerMode) {
-  const normalized = String(providerMode || "").toLowerCase();
-  return normalized !== "mock" && runtimePolicy && runtimePolicy.admin_token_required && !hasAdminToken();
+  const normalized = normalizeProviderMode(providerMode);
+  return normalized === "hosted"
+    && runtimePolicy
+    && hostedModelAvailable()
+    && runtimePolicy.admin_token_required
+    && !hostedAccessAuthenticated;
+}
+
+function normalizeProviderMode(value) {
+  const mode = String(value || "").toLowerCase();
+  if (mode === "hosted" && !hostedModelAvailable()) return "mock";
+  if (["hosted", "user", "mock"].includes(mode)) return mode;
+  return hostedModelAvailable() ? "hosted" : "mock";
+}
+
+function hostedModelAvailable() {
+  return Boolean(runtimePolicy && runtimePolicy.hosted_model_enabled);
+}
+
+function setHostedModeOptionState(enabled) {
+  const hostedOption = Array.from(providerModeSetting.options).find((option) => option.value === "hosted");
+  if (!hostedOption) return;
+  hostedOption.disabled = !enabled;
+  hostedOption.textContent = enabled ? "托管免费额度" : "托管免费额度（未启用）";
+}
+
+function appendUserProviderFormData(formData, mode) {
+  const normalized = normalizeProviderMode(mode);
+  if (normalized !== "user") return;
+  formData.set("user_provider", providerProviderSelect.value || "openai-compatible");
+  formData.set("user_base_url", providerBaseUrlInput.value.trim());
+  formData.set("user_model", providerModelInput.value.trim());
+  formData.set("user_api_key", providerApiKeyInput.value.trim());
+  formData.set("user_prompt_profile", providerProfileSelect.value || "default");
+  formData.set("user_timeout", providerTimeoutInput.value || "120");
+  formData.set("user_max_retries", providerMaxRetriesInput.value || "0");
+}
+
+function hostedRunLimit() {
+  const value = runtimePolicy && Number(runtimePolicy.hosted_free_run_limit);
+  return Number.isFinite(value) ? value : DEFAULT_HOSTED_FREE_RUN_LIMIT;
+}
+
+function hostedRunRemaining() {
+  if (hostedUsage && Number.isFinite(hostedUsage.remaining)) {
+    return hostedUsage.remaining;
+  }
+  return hostedRunLimit();
+}
+
+function updateHostedUsage(usage) {
+  if (!usage || typeof usage !== "object") return;
+  hostedUsage = {
+    limit: Number.isFinite(Number(usage.limit)) ? Number(usage.limit) : hostedRunLimit(),
+    used: Number.isFinite(Number(usage.used)) ? Number(usage.used) : 0,
+    remaining: Number.isFinite(Number(usage.remaining)) ? Number(usage.remaining) : 0,
+  };
+  setProviderStatus(`托管额度剩余 ${hostedUsage.remaining} 次`, hostedUsage.remaining > 0 ? "success" : "warning");
+  if (runtimePolicy && runtimePolicy.admin_token_required && hostedAccessAuthenticated) {
+    setProviderAuthStatus(`已登录，可使用托管免费额度。剩余 ${hostedUsage.remaining} 次。`, "success");
+  }
+}
+
+async function readJsonResponse(response, fallbackMessage = "请求失败") {
+  const text = await response.text();
+  if (!text.trim()) {
+    if (response.ok) {
+      return {};
+    }
+    throw new Error(`${fallbackMessage}：服务端返回了空响应（HTTP ${response.status}）。`);
+  }
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const contentType = response.headers.get("content-type") || "";
+    if (response.ok) {
+      throw new Error(`${fallbackMessage}：服务端返回了非 JSON 响应。`);
+    }
+    const hint = contentType.includes("text/html") ? "，可能是部署平台或代理返回的错误页" : "";
+    throw new Error(`${fallbackMessage}：服务端返回了非 JSON 错误响应（HTTP ${response.status}${hint}）。`);
+  }
 }
 
 function providerAuthHeaders(tokenOverride = "") {
   const token = tokenOverride || getAdminToken();
-  return token ? { "X-PaperShield-Admin-Token": token } : {};
+  if (!token) return {};
+  return {
+    "X-PaperShield-Admin-Token": token,
+    "X-PaperShield-Client-Id": hostedClientId(),
+  };
 }
 
 function getAdminToken() {
@@ -545,6 +687,26 @@ function clearAdminToken() {
 
 function hasAdminToken() {
   return Boolean(getAdminToken());
+}
+
+function hostedClientId() {
+  try {
+    let value = localStorage.getItem(HOSTED_CLIENT_ID_STORAGE_KEY);
+    if (!value) {
+      value = generateHostedClientId();
+      localStorage.setItem(HOSTED_CLIENT_ID_STORAGE_KEY, value);
+    }
+    return value;
+  } catch (error) {
+    return generateHostedClientId();
+  }
+}
+
+function generateHostedClientId() {
+  if (window.crypto && window.crypto.randomUUID) {
+    return window.crypto.randomUUID();
+  }
+  return `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function setProviderAuthStatus(message, state = "neutral") {
@@ -620,10 +782,18 @@ function fillProviderForm(config) {
   providerProfileSelect.value = config.prompt_profile || "default";
   providerTimeoutInput.value = config.timeout || 120;
   providerMaxRetriesInput.value = Number.isFinite(config.max_retries) ? config.max_retries : 0;
-  providerModeSetting.value = config.provider === "mock" ? "mock" : "configured";
+  if (!providerModeTouched) {
+    providerModeSetting.value = hostedModelAvailable() ? "hosted" : (config.provider === "mock" ? "mock" : "user");
+  }
   syncProviderMode();
-  setProviderStatus(config.configured ? "已配置" : "未配置 API key", config.configured ? "success" : "warning");
-  providerSummary.textContent = buildProviderSummary(config);
+  const mode = normalizeProviderMode(providerModeSetting.value);
+  if (mode === "user") {
+    setProviderStatus(config.configured ? "已配置" : "未配置 API key", config.configured ? "success" : "warning");
+    providerSummary.textContent = buildProviderSummary(config);
+  } else if (mode === "mock") {
+    setProviderStatus("本地演示模型", "success");
+    providerSummary.textContent = "当前使用：本地演示模型（无需 API key）";
+  }
   syncAllCustomSelects();
 }
 
@@ -633,7 +803,8 @@ function applyPresetToForm(presetId) {
   providerProviderSelect.value = preset.provider;
   providerBaseUrlInput.value = preset.base_url || "";
   providerModelInput.value = preset.default_model || "";
-  providerModeSetting.value = preset.provider === "mock" ? "mock" : "configured";
+  providerModeSetting.value = preset.provider === "mock" ? "mock" : "user";
+  providerModeTouched = true;
   if (preset.provider !== "mock") {
     providerMaxRetriesInput.value = providerMaxRetriesInput.value || 0;
   }
@@ -664,7 +835,7 @@ async function saveProviderConfig(options = {}) {
     headers: { "Content-Type": "application/json", ...providerAuthHeaders() },
     body: JSON.stringify(payload),
   });
-  const result = await response.json();
+  const result = await readJsonResponse(response, "模型配置保存失败");
   if (!response.ok) {
     const error = new Error(result.detail || "模型配置保存失败");
     if (!options.silent) setProviderAlert(error.message, true);
@@ -685,7 +856,8 @@ async function clearProviderKey() {
 }
 
 function readProviderForm() {
-  if (providerModeSetting.value === "mock") {
+  const mode = normalizeProviderMode(providerModeSetting.value);
+  if (mode === "mock") {
     return {
       preset_id: "mock",
       provider: "mock",
@@ -708,16 +880,50 @@ function readProviderForm() {
 }
 
 function syncProviderMode() {
-  const useMock = providerModeSetting.value === "mock";
-  providerModeInput.value = useMock ? "mock" : "configured";
+  const mode = normalizeProviderMode(providerModeSetting.value);
+  const configDisabled = runtimePolicy && runtimePolicy.provider_config_enabled === false;
+  const loginLocked = runtimePolicy && runtimePolicy.admin_token_required && !hasAdminToken();
+  setHostedModeOptionState(hostedModelAvailable());
+  providerModeSetting.value = mode;
+  providerModeInput.value = mode;
+  const useHosted = mode === "hosted";
+  const useUser = mode === "user";
+  const useMock = mode === "mock";
   if (useMock) {
     providerPresetSelect.value = "mock";
     providerProviderSelect.value = "mock";
     providerBaseUrlInput.value = "";
     providerModelInput.value = "mock";
   }
+  if (useUser && providerProviderSelect.value === "mock") {
+    providerProviderSelect.value = "openai-compatible";
+    providerModelInput.value = providerModelInput.value === "mock" ? "" : providerModelInput.value;
+  }
+  providerPresetSelect.disabled = Boolean(configDisabled || !useUser);
+  for (const field of providerConfigForm.querySelectorAll(".user-provider-field input, .user-provider-field select")) {
+    field.disabled = Boolean(configDisabled || !useUser);
+  }
+  if (checkProviderButton) checkProviderButton.disabled = Boolean(configDisabled || (useHosted && providerModeRequiresAuth(mode)));
+  if (clearProviderKeyButton) clearProviderKeyButton.disabled = Boolean(configDisabled || !useUser || loginLocked);
+  if (saveProviderButton) saveProviderButton.disabled = Boolean(configDisabled || !useUser || loginLocked);
+  providerConfigForm.classList.toggle("hosted-mode", useHosted);
+  providerConfigForm.classList.toggle("user-mode", useUser);
   providerConfigForm.classList.toggle("mock-mode", useMock);
+  if (useHosted) {
+    setProviderStatus(`托管额度剩余 ${hostedRunRemaining()} 次`, providerModeRequiresAuth(mode) ? "locked" : "success");
+    providerSummary.textContent = `当前使用：托管免费额度 · 剩余 ${hostedRunRemaining()} 次`;
+  } else if (useUser) {
+    providerSummary.textContent = "当前使用：自备模型参数";
+  } else {
+    providerSummary.textContent = "当前使用：本地演示模型（无需 API key）";
+  }
   syncAllCustomSelects();
+}
+
+function resolveProviderModeForRun() {
+  const mode = normalizeProviderMode(providerModeSetting.value);
+  providerModeInput.value = mode;
+  return mode;
 }
 
 function buildProviderSummary(config) {
@@ -1143,7 +1349,8 @@ function renderLoadingState() {
   reviewItems.innerHTML = "<li>等待诊断完成...</li>";
 }
 
-function renderErrorState(message) {
+function renderErrorState(message, payload = null) {
+  const providerTrace = payload && payload.provider_trace;
   resultSummary.innerHTML = `
     <div>
       <p class="kicker">Review State</p>
@@ -1158,10 +1365,17 @@ function renderErrorState(message) {
     </div>
   `;
   finalText.textContent = "等待运行...";
+  if (providerTrace) {
+    renderProviderTrace(providerTrace);
+    activateArtifactTab("workflow");
+  }
 }
 
 function renderResult(payload) {
   currentPayload = payload;
+  if (payload.hosted_usage) {
+    updateHostedUsage(payload.hosted_usage);
+  }
   paragraphChoices = new Map((payload.paragraphs || []).map((paragraph) => [
     paragraph.index,
     paragraph.status === "fallback" ? "original" : "rewritten",
@@ -1170,7 +1384,7 @@ function renderResult(payload) {
   renderResultSummary(payload);
   renderMergedFinalText();
   renderMetrics(payload.metrics || {});
-  renderWorkflowTrace(payload.workflow || {});
+  renderWorkflowTrace(payload.workflow || {}, payload.provider_trace || {});
   if (payload.analysis_only) {
     renderAnalysisSummary(payload.analysis_summary || {}, payload.paragraphs || []);
   } else {
@@ -1215,7 +1429,7 @@ function renderMetrics(metrics) {
     .join("");
 }
 
-function renderWorkflowTrace(workflow) {
+function renderWorkflowTrace(workflow, providerTrace = {}) {
   const steps = Array.isArray(workflow.steps) && workflow.steps.length
     ? workflow.steps
     : (Array.isArray(workflow.nodes) ? workflow.nodes.map((node) => ({ id: node, label: WORKFLOW_NODE_LABELS[node] || node, description: "" })) : []);
@@ -1227,12 +1441,41 @@ function renderWorkflowTrace(workflow) {
     ["路线", workflow.route_label || formatWorkflowRouteLabel(workflow.route)],
     ["人工复核", workflow.manual_review_label || (workflow.manual_review_required ? "已触发" : "未触发")],
   ];
-  workflowTrace.innerHTML = `
+  workflowTrace.innerHTML = `${renderProviderTraceHtml(providerTrace)}
     <div class="workflow-summary">
       ${rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
     </div>
     <div class="workflow-nodes">${nodeList}</div>
   `;
+}
+
+function renderProviderTrace(trace) {
+  workflowTrace.innerHTML = renderProviderTraceHtml(trace);
+}
+
+function renderProviderTraceHtml(trace = {}) {
+  const rows = [
+    ["模式", formatProviderModeLabel(trace.mode)],
+    ["服务", trace.provider || "-"],
+    ["模型", trace.model || "-"],
+    ["外部调用", trace.external_call_required ? (trace.external_call_attempted ? "已尝试" : "未发生") : "不需要"],
+    ["调用次数", Number.isFinite(trace.call_count) ? String(trace.call_count) : "0"],
+    ["耗时", Number.isFinite(trace.elapsed_ms) ? `${trace.elapsed_ms} ms` : "-"],
+    ["状态", formatProviderTraceStatus(trace.status)],
+  ];
+  const errors = Array.isArray(trace.errors) && trace.errors.length
+    ? `<div class="provider-trace-errors">${trace.errors.map((item) => `<p>${escapeHtml(item)}</p>`).join("")}</div>`
+    : "";
+  return `<section class="provider-trace" aria-label="模型调用轨迹">
+    <div class="provider-trace-head">
+      <p class="kicker">Model Call</p>
+      <strong>${escapeHtml(formatProviderTraceStatus(trace.status))}</strong>
+    </div>
+    <div class="workflow-summary">
+      ${rows.map(([label, value]) => `<div><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></div>`).join("")}
+    </div>
+    ${errors}
+  </section>`;
 }
 
 function renderWorkflowStep(step, index) {
@@ -1530,10 +1773,10 @@ async function downloadWordReport() {
     if (!response.ok) {
       let message = "Word 报告生成失败";
       try {
-        const payload = await response.json();
+        const payload = await readJsonResponse(response, message);
         message = payload.detail || message;
       } catch (error) {
-        // Non-JSON error bodies are handled by the fallback message.
+        message = error.message || message;
       }
       throw new Error(message);
     }
@@ -1606,6 +1849,25 @@ function formatDomainLabel(domain) {
 
 function formatWorkflowRouteLabel(route) {
   return WORKFLOW_ROUTE_LABELS[route] || WORKFLOW_ROUTE_LABELS.unknown;
+}
+
+function formatProviderModeLabel(mode) {
+  const labels = {
+    mock: "本地演示模型",
+    hosted: "托管模型",
+    user: "自备模型",
+  };
+  return labels[mode] || "未知模式";
+}
+
+function formatProviderTraceStatus(status) {
+  const labels = {
+    success: "调用完成",
+    failed: "调用失败",
+    not_called: "未调用",
+    not_started: "未开始",
+  };
+  return labels[status] || "未知状态";
 }
 
 function formatRiskFlagList(flags) {

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PaperShield 审阅工作台</title>
     <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='10' fill='%23070b0a'/%3E%3Cpath d='M16 13h23l9 9v29H16z' fill='%23f2efe2'/%3E%3Cpath d='M39 13v10h9' fill='%23c7a45c'/%3E%3Cpath d='M23 31h24M23 39h18M23 47h13' stroke='%2314201b' stroke-width='4' stroke-linecap='round'/%3E%3C/svg%3E" />
-    <link rel="stylesheet" href="/static/styles.css?v=1.11" />
+    <link rel="stylesheet" href="/static/styles.css?v=1.14" />
   </head>
   <body>
     <div class="notice-modal" id="user-notice-modal" role="dialog" aria-modal="true" aria-labelledby="user-notice-title" aria-describedby="user-notice-copy" hidden>
@@ -107,29 +107,30 @@
             </summary>
             <section class="provider-auth-panel" aria-label="模型配置访问口令">
               <div class="provider-auth-copy">
-                <span class="text-label">访问口令</span>
+                <span class="text-label">托管额度访问口令</span>
                 <strong id="provider-auth-status">正在读取运行策略...</strong>
               </div>
               <div class="provider-auth-controls">
-                <input id="provider-admin-token" type="password" autocomplete="current-password" placeholder="输入部署时设置的访问口令" />
-                <button class="secondary-button" id="provider-login" type="button">登录配置</button>
+                <input id="provider-admin-token" type="password" autocomplete="current-password" placeholder="输入我提供的访问密匙" />
+                <button class="secondary-button" id="provider-login" type="button">登录使用</button>
                 <button class="secondary-button" id="provider-logout" type="button" hidden>退出登录</button>
               </div>
             </section>
             <form id="provider-config-form">
               <div class="settings-grid">
                 <label>
-                  <span class="field-label">模式 <span class="help-dot" tabindex="0" data-tooltip="本地演示无需 API key；外部模型会使用你配置的厂商、模型和 key。">?</span></span>
+                  <span class="field-label">使用方式 <span class="help-dot" tabindex="0" data-tooltip="托管额度使用站点预设模型；自备模型只在本次请求中使用你的配置。">?</span></span>
                   <select id="provider-mode-setting">
+                    <option value="hosted">托管免费额度</option>
+                    <option value="user">自备模型参数</option>
                     <option value="mock">本地演示模型</option>
-                    <option value="configured">外部模型</option>
                   </select>
                 </label>
                 <label>
                   <span class="field-label">厂商预设 <span class="help-dot" tabindex="0" data-tooltip="预填常见模型服务商的接口地址和推荐模型名，可再手动调整。">?</span></span>
                   <select id="provider-preset"></select>
                 </label>
-                <label>
+                <label class="user-provider-field">
                   <span class="field-label">接口类型 <span class="help-dot" tabindex="0" data-tooltip="选择服务商兼容的调用协议。大多数国内模型可用 openai-compatible。">?</span></span>
                   <select id="provider-provider">
                     <option value="mock">mock</option>
@@ -138,43 +139,43 @@
                     <option value="anthropic">anthropic</option>
                   </select>
                 </label>
-                <label>
+                <label class="user-provider-field">
                   <span class="field-label">提示词方案 <span class="help-dot" tabindex="0" data-tooltip="控制润色与诊断的写作风格，默认方案更稳妥，研究写作方案更强调中文学术表达。">?</span></span>
                   <select id="provider-profile">
                     <option value="default">default</option>
                     <option value="research_writing_zh_word_v1">research_writing_zh_word_v1</option>
                   </select>
                 </label>
-                <label class="span-2">
+                <label class="span-2 user-provider-field">
                   <span class="field-label">服务地址 <span class="help-dot" tabindex="0" data-tooltip="模型服务的 HTTPS 接口地址，例如厂商文档中的 OpenAI-compatible base URL。">?</span></span>
                   <input id="provider-base-url" type="url" placeholder="https://provider.example.com/v1" spellcheck="false" />
                 </label>
-                <label>
+                <label class="user-provider-field">
                   <span class="field-label">模型/端点 ID <span class="help-dot" tabindex="0" data-tooltip="填写模型名称或厂商端点 ID，例如 qwen-plus、deepseek-chat。">?</span></span>
                   <input id="provider-model" type="text" placeholder="模型名或 endpoint id" spellcheck="false" />
                 </label>
-                <label>
+                <label class="user-provider-field">
                   <span class="field-label">API key <span class="help-dot" tabindex="0" data-tooltip="模型服务密钥。页面不会回显，当前后端进程重启后需要重新配置。">?</span></span>
                   <input id="provider-api-key" type="password" autocomplete="off" placeholder="保存后只显示已配置" />
                 </label>
-                <label>
+                <label class="user-provider-field">
                   <span class="field-label">超时时间 <span class="help-dot" tabindex="0" data-tooltip="单次模型请求最长等待秒数。网络慢或长文档可适当调大。">?</span></span>
                   <input id="provider-timeout" type="number" min="1" step="1" value="120" inputmode="numeric" />
                 </label>
-                <label>
+                <label class="user-provider-field">
                   <span class="field-label">失败重试次数 <span class="help-dot" tabindex="0" data-tooltip="模型请求临时失败时自动重试的次数。建议 0-1，过高会增加等待时间和额度消耗。">?</span></span>
                   <input id="provider-max-retries" type="number" min="0" step="1" value="0" inputmode="numeric" />
                 </label>
               </div>
               <div class="provider-strip">
                 <div class="provider-status-card">
-                  <span class="text-label">连接状态</span>
+                  <span class="text-label">运行额度</span>
                   <strong id="provider-status" aria-live="polite">未测试</strong>
                 </div>
                 <div class="provider-actions">
                   <button class="secondary-button" id="check-provider" type="button">测试连接</button>
                   <button class="secondary-button" id="clear-provider-key" type="button">清空 Key</button>
-                  <button class="secondary-button" id="save-provider" type="submit">保存设置</button>
+                  <button class="secondary-button" id="save-provider" type="submit">保存为站点默认</button>
                 </div>
                 <details class="provider-diagnostics" id="provider-diagnostics" hidden>
                   <summary>连接诊断</summary>
@@ -302,6 +303,6 @@
         </aside>
       </section>
     </main>
-    <script src="/static/app.js?v=1.11"></script>
+    <script src="/static/app.js?v=1.14"></script>
   </body>
 </html>

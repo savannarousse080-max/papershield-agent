@@ -5,14 +5,14 @@ import json
 import re
 import time
 
-from agent.llm import LLMClient, MockLLMClient
+from agent.llm import ExternalModelCallError, LLMClient, MockLLMClient
 from agent.nodes.assemble import assemble_final_text, build_report
 from agent.nodes.layer1 import rewrite_syntax
 from agent.nodes.layer2 import rewrite_lexical
 from agent.nodes.parse import parse_text
 from agent.nodes.scorer import score_paragraph
 from agent.prompts.analysis_prompt import build_analysis_messages
-from agent.prompts.layer2_prompts import get_domain_config
+from agent.prompts.layer2_prompts import build_layer2_messages, get_domain_config
 from agent.prompts.profiles import get_prompt_profile
 from agent.review import aggregate_review_items, annotate_paragraph
 from agent.state import AgentState, ParagraphRecord
@@ -50,6 +50,7 @@ def optimize_text(
     source_format: str = "txt",
     analysis_only: bool = False,
     prompt_profile: str | None = None,
+    external_call_required: bool = False,
 ) -> AgentState:
     graph = build_graph(domain, llm_client=llm_client)
     return graph.invoke(
@@ -59,6 +60,7 @@ def optimize_text(
             "source_format": source_format,
             "analysis_only": analysis_only,
             "prompt_profile": prompt_profile,
+            "external_call_required": external_call_required,
         }
     )
 
@@ -80,6 +82,7 @@ def _initial_workflow_state(
     source_format: str = "txt",
     analysis_only: bool = False,
     prompt_profile: str | None = None,
+    external_call_required: bool = False,
 ) -> dict:
     get_domain_config(domain)
     profile = get_prompt_profile(prompt_profile)
@@ -93,6 +96,7 @@ def _initial_workflow_state(
             prompt_profile=profile.id,
         ),
         "llm_client": llm,
+        "external_call_required": external_call_required,
         "started": time.perf_counter(),
         "trace": [],
     }
@@ -115,6 +119,8 @@ def _process_paragraphs_node(workflow: dict) -> dict:
         try:
             state.analysis_summary = _analyze_document_only(state, llm)
         except Exception as exc:
+            if workflow.get("external_call_required"):
+                raise ExternalModelCallError(f"external document analysis failed: {exc}") from exc
             analysis_warning = f"document analysis failed: {exc}"
             state.warnings.append(analysis_warning)
             state.analysis_summary = _fallback_analysis_summary(state, str(exc))
@@ -134,6 +140,7 @@ def _process_paragraphs_node(workflow: dict) -> dict:
                 citation_map=state.parsed.citation_map,
                 llm_client=llm,
                 prompt_profile=state.prompt_profile,
+                external_call_required=bool(workflow.get("external_call_required")),
             )
         )
     return _workflow_update(workflow, "process_paragraphs", state)
@@ -178,6 +185,7 @@ def _workflow_update(workflow: dict, node_name: str, state: AgentState, extra: d
     update = {
         "agent_state": state,
         "llm_client": workflow["llm_client"],
+        "external_call_required": workflow.get("external_call_required", False),
         "started": workflow["started"],
         "trace": _next_trace(workflow, node_name),
     }
@@ -308,6 +316,7 @@ def _process_paragraph(
     citation_map: dict[str, str],
     llm_client: LLMClient,
     prompt_profile: str,
+    external_call_required: bool = False,
 ) -> ParagraphRecord:
     original_text = restore_citations(protected_text, citation_map)
     last_metrics = None
@@ -316,8 +325,11 @@ def _process_paragraph(
 
     for attempt in range(MAX_RETRIES + 1):
         try:
-            layer1 = rewrite_syntax(protected_text, llm_client, prompt_profile)
-            layer2 = rewrite_lexical(layer1, domain, llm_client, prompt_profile)
+            if external_call_required:
+                layer2 = llm_client.complete(build_layer2_messages(protected_text, domain, prompt_profile)).strip()
+            else:
+                layer1 = rewrite_syntax(protected_text, llm_client, prompt_profile)
+                layer2 = rewrite_lexical(layer1, domain, llm_client, prompt_profile)
             metrics = score_paragraph(protected_text, layer2)
             last_metrics = metrics
             missing = _missing_placeholders(protected_text, layer2)
@@ -336,6 +348,8 @@ def _process_paragraph(
                     warnings=warnings,
                 ))
         except Exception as exc:
+            if external_call_required:
+                raise ExternalModelCallError(f"external paragraph processing failed: {exc}") from exc
             warnings.append(f"paragraph processing failed: {exc}")
             break
         retry_count = attempt + 1
@@ -391,6 +405,7 @@ class SimpleCompiledGraph:
             source_format=state.get("source_format", "txt"),
             analysis_only=state.get("analysis_only", False),
             prompt_profile=state.get("prompt_profile"),
+            external_call_required=state.get("external_call_required", False),
         )
         workflow = _run_workflow_nodes(workflow)
         agent_state = workflow["agent_state"]
@@ -435,6 +450,7 @@ class LangGraphCompiledGraph:
             source_format=state.get("source_format", "txt"),
             analysis_only=state.get("analysis_only", False),
             prompt_profile=state.get("prompt_profile"),
+            external_call_required=state.get("external_call_required", False),
         )
         result = self._compiled.invoke(workflow)
         agent_state = result["agent_state"]

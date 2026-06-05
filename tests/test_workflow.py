@@ -63,6 +63,19 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("市场失灵需要政府干预[2]", state.final_text)
         self.assertIn("已保留原文", state.report)
 
+    def test_external_required_uses_one_model_call_per_rewrite_paragraph(self):
+        llm = FakeLLM(["Rewritten paragraph {{REF_1}}."])
+
+        state = optimize_text(
+            "Original paragraph [1].",
+            domain="law",
+            llm_client=llm,
+            external_call_required=True,
+        )
+
+        self.assertEqual(len(llm.calls), 1)
+        self.assertIn("[1]", state.final_text)
+
     def test_text_report_localizes_status_and_risk_flags(self):
         llm = FakeLLM(fail=True)
 

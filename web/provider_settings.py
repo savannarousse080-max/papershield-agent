@@ -98,6 +98,11 @@ def get_provider_config_payload() -> dict[str, Any]:
     return _sanitized_payload(config)
 
 
+def hosted_provider_ready() -> bool:
+    payload = _sanitized_payload(_current_config())
+    return bool(payload["configured"] and payload["provider"] != "mock")
+
+
 def save_provider_config(payload: dict[str, Any]) -> dict[str, Any]:
     global _runtime_api_key, _runtime_config
     config = _config_from_payload(payload)
